@@ -230,3 +230,90 @@ func statusFromCode(code int) string {
 	}
 	return "failed"
 }
+
+func TestGetCostBySprint(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	_, _ = db.db.Exec(`
+		INSERT INTO runs (id, jira_sprint_id, agent_name, agent_type, user, workstation_id, started_at, status, cost_usd, input_tokens, output_tokens)
+		VALUES ('r1', '4', 'alpha', 'claude', 'test', 'ws1', datetime('now'), 'done', 3.00, 6000, 2000)
+	`)
+	_, _ = db.db.Exec(`
+		INSERT INTO runs (id, jira_sprint_id, agent_name, agent_type, user, workstation_id, started_at, status, cost_usd, input_tokens, output_tokens)
+		VALUES ('r2', '5', 'alpha', 'claude', 'test', 'ws1', datetime('now'), 'done', 1.00, 2000, 500)
+	`)
+
+	groups, err := db.GetCostBySprint()
+	if err != nil {
+		t.Fatalf("GetCostBySprint: %v", err)
+	}
+
+	if len(groups) != 2 {
+		t.Errorf("expected 2 sprints, got %d", len(groups))
+	}
+
+	for _, g := range groups {
+		t.Logf("Sprint %s: $%.2f, %d runs", g.Group, g.Cost, g.RunCount)
+	}
+}
+
+func TestGetSprintSummary(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	// Insert runs for sprint 4
+	_, _ = db.db.Exec(`
+		INSERT INTO runs (id, jira_issue_key, jira_sprint_id, agent_name, agent_type, user, workstation_id, started_at, exit_code, status, cost_usd, input_tokens, output_tokens)
+		VALUES ('r1', 'PROJ-1', '4', 'alpha', 'claude', 'test', 'ws1', datetime('now'), 0, 'done', 2.00, 4000, 1000)
+	`)
+	_, _ = db.db.Exec(`
+		INSERT INTO runs (id, jira_issue_key, jira_sprint_id, agent_name, agent_type, user, workstation_id, started_at, exit_code, status, cost_usd, input_tokens, output_tokens)
+		VALUES ('r2', 'PROJ-2', '4', 'beta', 'claude', 'test', 'ws1', datetime('now'), 0, 'done', 1.50, 3000, 800)
+	`)
+	_, _ = db.db.Exec(`
+		INSERT INTO runs (id, jira_issue_key, jira_sprint_id, agent_name, agent_type, user, workstation_id, started_at, exit_code, status, cost_usd, input_tokens, output_tokens)
+		VALUES ('r3', 'PROJ-2', '4', 'alpha', 'claude', 'test', 'ws1', datetime('now'), 1, 'failed', 0.50, 1000, 300)
+	`)
+
+	summary, err := db.GetSprintSummary("4")
+	if err != nil {
+		t.Fatalf("GetSprintSummary: %v", err)
+	}
+
+	if summary.SprintID != "4" {
+		t.Errorf("SprintID = %s, want 4", summary.SprintID)
+	}
+	if summary.TaskCount != 2 {
+		t.Errorf("TaskCount = %d, want 2", summary.TaskCount)
+	}
+	if summary.RunCount != 3 {
+		t.Errorf("RunCount = %d, want 3", summary.RunCount)
+	}
+	if summary.SuccessRate < 66 || summary.SuccessRate > 67 {
+		t.Errorf("SuccessRate = %.1f, want ~66.7", summary.SuccessRate)
+	}
+	if len(summary.Agents) != 2 {
+		t.Errorf("expected 2 agents, got %d", len(summary.Agents))
+	}
+
+	t.Logf("Sprint %s: %d tasks, %d runs, %.1f%% success, $%.2f",
+		summary.SprintID, summary.TaskCount, summary.RunCount, summary.SuccessRate, summary.TotalCost)
+	for agent, cost := range summary.Agents {
+		t.Logf("  %s: $%.2f", agent, cost)
+	}
+}
+
+func TestGetSprintSummaryEmpty(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	summary, err := db.GetSprintSummary("999")
+	if err != nil {
+		t.Fatalf("GetSprintSummary empty: %v", err)
+	}
+
+	if summary.RunCount != 0 {
+		t.Errorf("empty sprint should have 0 runs, got %d", summary.RunCount)
+	}
+}

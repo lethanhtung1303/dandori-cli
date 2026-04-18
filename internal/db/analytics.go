@@ -186,3 +186,80 @@ func (l *LocalDB) GetTotalStats() (runCount int, totalCost float64, totalTokens 
 	}
 	return
 }
+
+// SprintSummary represents sprint-level statistics
+type SprintSummary struct {
+	SprintID    string
+	TaskCount   int
+	RunCount    int
+	SuccessRate float64
+	TotalCost   float64
+	TotalTokens int
+	Agents      map[string]float64
+}
+
+// GetCostBySprint returns cost breakdown by sprint
+func (l *LocalDB) GetCostBySprint() ([]LocalCostGroup, error) {
+	query := `
+		SELECT
+			COALESCE(jira_sprint_id, 'no-sprint') as grp,
+			COALESCE(SUM(cost_usd), 0) as cost,
+			COUNT(*) as run_count,
+			COALESCE(SUM(input_tokens + output_tokens), 0) as tokens
+		FROM runs
+		GROUP BY jira_sprint_id
+		ORDER BY cost DESC
+	`
+	return l.queryCostGroups(query)
+}
+
+// GetSprintSummary returns detailed stats for a specific sprint
+func (l *LocalDB) GetSprintSummary(sprintID string) (*SprintSummary, error) {
+	summary := &SprintSummary{
+		SprintID: sprintID,
+		Agents:   make(map[string]float64),
+	}
+
+	// Get overall sprint stats
+	query := `
+		SELECT
+			COUNT(DISTINCT jira_issue_key) as task_count,
+			COUNT(*) as run_count,
+			COALESCE(ROUND(CAST(SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(*), 0) * 100, 1), 0) as success_rate,
+			COALESCE(SUM(cost_usd), 0) as total_cost,
+			COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens
+		FROM runs
+		WHERE jira_sprint_id = ?
+	`
+	err := l.db.QueryRow(query, sprintID).Scan(
+		&summary.TaskCount, &summary.RunCount, &summary.SuccessRate,
+		&summary.TotalCost, &summary.TotalTokens)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("query sprint stats: %w", err)
+	}
+
+	// Get cost by agent for this sprint
+	agentQuery := `
+		SELECT agent_name, COALESCE(SUM(cost_usd), 0) as cost
+		FROM runs
+		WHERE jira_sprint_id = ?
+		GROUP BY agent_name
+		ORDER BY cost DESC
+	`
+	rows, err := l.db.Query(agentQuery, sprintID)
+	if err != nil {
+		return nil, fmt.Errorf("query agent costs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var agent string
+		var cost float64
+		if err := rows.Scan(&agent, &cost); err != nil {
+			return nil, err
+		}
+		summary.Agents[agent] = cost
+	}
+
+	return summary, nil
+}

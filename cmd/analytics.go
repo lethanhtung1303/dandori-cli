@@ -3,21 +3,29 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
 
-	"github.com/phuc-nt/dandori-cli/internal/analytics"
+	"github.com/phuc-nt/dandori-cli/internal/db"
 	"github.com/spf13/cobra"
 )
 
 var analyticsCmd = &cobra.Command{
 	Use:   "analytics",
-	Short: "Query analytics from server",
-	Long:  "Query agent efficiency, cost attribution, and sprint analytics from the monitoring server.",
+	Short: "Local analytics from SQLite",
+	Long: `Query analytics from local SQLite database.
+Works offline with multi-agent data on single machine.
+
+Examples:
+  dandori analytics                    # Overview
+  dandori analytics agents             # Agent performance
+  dandori analytics agents --compare alpha,beta
+  dandori analytics cost               # Cost breakdown
+  dandori analytics cost --group-by task
+  dandori analytics sprint 4           # Sprint summary
+  dandori analytics runs               # Recent runs`,
+	RunE: runAnalyticsOverview,
 }
 
 var analyticsCostCmd = &cobra.Command{
@@ -39,14 +47,17 @@ var analyticsSprintCmd = &cobra.Command{
 	RunE:  runAnalyticsSprint,
 }
 
+var analyticsRunsCmd = &cobra.Command{
+	Use:   "runs",
+	Short: "Recent runs",
+	RunE:  runAnalyticsRuns,
+}
+
 var (
 	analyticsGroupBy string
-	analyticsAgent   string
-	analyticsSprint  string
-	analyticsFrom    string
-	analyticsTo      string
 	analyticsCompare string
 	analyticsFormat  string
+	analyticsLimit   int
 )
 
 func init() {
@@ -54,173 +65,87 @@ func init() {
 	analyticsCmd.AddCommand(analyticsCostCmd)
 	analyticsCmd.AddCommand(analyticsAgentsCmd)
 	analyticsCmd.AddCommand(analyticsSprintCmd)
+	analyticsCmd.AddCommand(analyticsRunsCmd)
 
-	analyticsCostCmd.Flags().StringVar(&analyticsGroupBy, "group-by", "agent", "Group by: agent, sprint, task, day, week, month")
-	analyticsCostCmd.Flags().StringVar(&analyticsSprint, "sprint", "", "Filter by sprint ID")
-	analyticsCostCmd.Flags().StringVar(&analyticsFrom, "from", "", "Start date (YYYY-MM-DD)")
-	analyticsCostCmd.Flags().StringVar(&analyticsTo, "to", "", "End date (YYYY-MM-DD)")
-	analyticsCostCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json, csv")
+	analyticsCostCmd.Flags().StringVar(&analyticsGroupBy, "group-by", "agent", "Group by: agent, task, day, sprint")
+	analyticsCostCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
 
-	analyticsAgentsCmd.Flags().StringVar(&analyticsCompare, "compare", "", "Compare agents (comma-separated)")
-	analyticsAgentsCmd.Flags().StringVar(&analyticsAgent, "agent", "", "Filter by agent")
-	analyticsAgentsCmd.Flags().StringVar(&analyticsSprint, "sprint", "", "Filter by sprint ID")
-	analyticsAgentsCmd.Flags().StringVar(&analyticsFrom, "from", "", "Start date")
-	analyticsAgentsCmd.Flags().StringVar(&analyticsTo, "to", "", "End date")
+	analyticsAgentsCmd.Flags().StringVar(&analyticsCompare, "compare", "", "Compare specific agents (comma-separated)")
 	analyticsAgentsCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
+
+	analyticsRunsCmd.Flags().IntVar(&analyticsLimit, "limit", 20, "Number of runs to show")
+	analyticsRunsCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
+
+	analyticsCmd.PersistentFlags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
 }
 
-func runAnalyticsCost(cmd *cobra.Command, args []string) error {
-	cfg, err := loadConfig()
+func getLocalDB() (*db.LocalDB, error) {
+	return db.Open("")
+}
+
+func runAnalyticsOverview(cmd *cobra.Command, args []string) error {
+	store, err := getLocalDB()
 	if err != nil {
 		return err
 	}
+	defer store.Close()
 
-	params := url.Values{}
-	params.Set("group_by", analyticsGroupBy)
-	if analyticsSprint != "" {
-		params.Set("sprint", analyticsSprint)
-	}
-	if analyticsFrom != "" {
-		params.Set("from", analyticsFrom)
-	}
-	if analyticsTo != "" {
-		params.Set("to", analyticsTo)
-	}
-
-	resp, err := http.Get(cfg.ServerURL + "/api/analytics/cost?" + params.Encode())
+	runCount, totalCost, totalTokens, err := store.GetTotalStats()
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server error %d: %s", resp.StatusCode, body)
-	}
-
-	var result struct {
-		Data []analytics.CostGroup `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decode failed: %w", err)
-	}
-
-	switch analyticsFormat {
-	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result.Data)
-	case "csv":
-		return analytics.ExportCSV(result.Data, os.Stdout)
-	default:
-		return printCostTable(result.Data)
-	}
-}
-
-func runAnalyticsAgents(cmd *cobra.Command, args []string) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-
-	params := url.Values{}
-	if analyticsAgent != "" {
-		params.Set("agent", analyticsAgent)
-	}
-	if analyticsSprint != "" {
-		params.Set("sprint", analyticsSprint)
-	}
-	if analyticsFrom != "" {
-		params.Set("from", analyticsFrom)
-	}
-	if analyticsTo != "" {
-		params.Set("to", analyticsTo)
-	}
-
-	var endpoint string
-	if analyticsCompare != "" {
-		params.Set("agents", analyticsCompare)
-		endpoint = "/api/analytics/agents/compare"
-	} else {
-		endpoint = "/api/analytics/agents"
-	}
-
-	resp, err := http.Get(cfg.ServerURL + endpoint + "?" + params.Encode())
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server error %d: %s", resp.StatusCode, body)
-	}
-
-	if analyticsCompare != "" {
-		var result struct {
-			Agents []analytics.AgentComparison `json:"agents"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return fmt.Errorf("decode failed: %w", err)
-		}
-		if analyticsFormat == "json" {
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(result.Agents)
-		}
-		return printAgentCompareTable(result.Agents)
-	}
-
-	var result struct {
-		Data []analytics.AgentStat `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decode failed: %w", err)
+		return fmt.Errorf("get stats: %w", err)
 	}
 
 	if analyticsFormat == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result.Data)
-	}
-	return printAgentStatsTable(result.Data)
-}
-
-func runAnalyticsSprint(cmd *cobra.Command, args []string) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"runs":   runCount,
+			"cost":   totalCost,
+			"tokens": totalTokens,
+		})
 	}
 
-	sprintID := args[0]
-	resp, err := http.Get(cfg.ServerURL + "/api/analytics/sprints/" + sprintID)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
+	fmt.Println("=== Analytics Overview ===")
+	fmt.Printf("Total Runs:   %d\n", runCount)
+	fmt.Printf("Total Cost:   $%.2f\n", totalCost)
+	fmt.Printf("Total Tokens: %d\n", totalTokens)
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server error %d: %s", resp.StatusCode, body)
+	if runCount == 0 {
+		fmt.Println("\nNo runs recorded yet. Use 'dandori run' to track agent executions.")
 	}
-
-	var result analytics.SprintSummary
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decode failed: %w", err)
-	}
-
-	fmt.Printf("Sprint: %s (%s)\n", result.SprintName, result.SprintID)
-	fmt.Printf("Tasks: %d/%d completed\n", result.CompletedCount, result.TaskCount)
-	fmt.Printf("Agents: %d\n", result.AgentCount)
-	fmt.Printf("Runs: %d\n", result.TotalRuns)
-	fmt.Printf("Cost: $%.2f\n", result.TotalCost)
-	fmt.Printf("Points: %.1f\n", result.PointsCompleted)
-	fmt.Printf("Points/$: %.2f\n", result.PointsPerDollar)
 
 	return nil
 }
 
-func printCostTable(groups []analytics.CostGroup) error {
+func runAnalyticsCost(cmd *cobra.Command, args []string) error {
+	store, err := getLocalDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	var groups []db.LocalCostGroup
+	switch analyticsGroupBy {
+	case "task":
+		groups, err = store.GetCostByTask()
+	case "day":
+		groups, err = store.GetCostByDay()
+	case "sprint":
+		groups, err = store.GetCostBySprint()
+	default:
+		groups, err = store.GetCostByAgent()
+	}
+	if err != nil {
+		return fmt.Errorf("get cost: %w", err)
+	}
+
+	if len(groups) == 0 {
+		fmt.Println("No cost data yet.")
+		return nil
+	}
+
+	if analyticsFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(groups)
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "GROUP\tCOST\tRUNS\tTOKENS")
 	fmt.Fprintln(w, "-----\t----\t----\t------")
@@ -230,33 +155,123 @@ func printCostTable(groups []analytics.CostGroup) error {
 	return w.Flush()
 }
 
-func printAgentStatsTable(stats []analytics.AgentStat) error {
+func runAnalyticsAgents(cmd *cobra.Command, args []string) error {
+	store, err := getLocalDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	stats, err := store.GetAgentStats()
+	if err != nil {
+		return fmt.Errorf("get agent stats: %w", err)
+	}
+
+	// Filter if --compare specified
+	if analyticsCompare != "" {
+		agents := strings.Split(analyticsCompare, ",")
+		agentSet := make(map[string]bool)
+		for _, a := range agents {
+			agentSet[strings.TrimSpace(a)] = true
+		}
+		var filtered []db.LocalAgentStat
+		for _, s := range stats {
+			if agentSet[s.AgentName] {
+				filtered = append(filtered, s)
+			}
+		}
+		stats = filtered
+	}
+
+	if len(stats) == 0 {
+		fmt.Println("No agent data yet.")
+		return nil
+	}
+
+	if analyticsFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(stats)
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "AGENT\tRUNS\tSUCCESS\tCOST\tAVG COST\tAVG DUR")
-	fmt.Fprintln(w, "-----\t----\t-------\t----\t--------\t-------")
+	fmt.Fprintln(w, "AGENT\tRUNS\tSUCCESS\tCOST\tAVG COST\tAVG DUR\tTOKENS")
+	fmt.Fprintln(w, "-----\t----\t-------\t----\t--------\t-------\t------")
 	for _, s := range stats {
-		fmt.Fprintf(w, "%s\t%d\t%.1f%%\t$%.2f\t$%.2f\t%.0fs\n",
-			s.AgentName, s.RunCount, s.SuccessRate, s.TotalCost, s.AvgCost, s.AvgDuration)
+		fmt.Fprintf(w, "%s\t%d\t%.1f%%\t$%.2f\t$%.2f\t%.0fs\t%d\n",
+			s.AgentName, s.RunCount, s.SuccessRate, s.TotalCost, s.AvgCost, s.AvgDuration, s.TotalTokens)
 	}
 	return w.Flush()
 }
 
-func printAgentCompareTable(agents []analytics.AgentComparison) error {
+func runAnalyticsSprint(cmd *cobra.Command, args []string) error {
+	sprintID := args[0]
+
+	store, err := getLocalDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	summary, err := store.GetSprintSummary(sprintID)
+	if err != nil {
+		return fmt.Errorf("get sprint: %w", err)
+	}
+
+	if analyticsFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(summary)
+	}
+
+	fmt.Printf("=== Sprint %s ===\n", sprintID)
+	fmt.Printf("Tasks:   %d\n", summary.TaskCount)
+	fmt.Printf("Runs:    %d\n", summary.RunCount)
+	fmt.Printf("Success: %.1f%%\n", summary.SuccessRate)
+	fmt.Printf("Cost:    $%.2f\n", summary.TotalCost)
+	fmt.Printf("Tokens:  %d\n", summary.TotalTokens)
+
+	if len(summary.Agents) > 0 {
+		fmt.Println("\nBy Agent:")
+		for agent, cost := range summary.Agents {
+			fmt.Printf("  %s: $%.2f\n", agent, cost)
+		}
+	}
+
+	return nil
+}
+
+func runAnalyticsRuns(cmd *cobra.Command, args []string) error {
+	store, err := getLocalDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	runs, err := store.GetRecentRuns(analyticsLimit)
+	if err != nil {
+		return fmt.Errorf("get runs: %w", err)
+	}
+
+	if len(runs) == 0 {
+		fmt.Println("No runs yet.")
+		return nil
+	}
+
+	if analyticsFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(runs)
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "AGENT\tRUNS\tSUCCESS\tCOST\tAVG COST\tPOINTS")
-	fmt.Fprintln(w, "-----\t----\t-------\t----\t--------\t------")
-	for _, a := range agents {
-		fmt.Fprintf(w, "%s\t%d\t%.1f%%\t$%.2f\t$%.2f\t%.1f\n",
-			a.AgentName, a.RunCount, a.SuccessRate, a.TotalCost, a.AvgCost, a.PointsCompleted)
+	fmt.Fprintln(w, "ID\tTASK\tAGENT\tSTATUS\tDURATION\tCOST")
+	fmt.Fprintln(w, "--\t----\t-----\t------\t--------\t----")
+	for _, r := range runs {
+		task := r.JiraIssueKey
+		if task == "" {
+			task = "-"
+		}
+		id := r.ID
+		if len(id) > 8 {
+			id = id[:8]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%.0fs\t$%.2f\n",
+			id, task, r.AgentName, r.Status, r.Duration, r.Cost)
 	}
 	return w.Flush()
-}
-
-func loadConfig() (*struct{ ServerURL string }, error) {
-	serverURL := os.Getenv("DANDORI_SERVER_URL")
-	if serverURL == "" {
-		serverURL = "http://localhost:8080"
-	}
-	serverURL = strings.TrimSuffix(serverURL, "/")
-	return &struct{ ServerURL string }{ServerURL: serverURL}, nil
 }
