@@ -5,6 +5,38 @@ import (
 	"time"
 )
 
+// JiraTime handles Jira's time format which may include timezone offset without colon
+type JiraTime struct {
+	time.Time
+}
+
+func (jt *JiraTime) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	if s == "" || s == "null" {
+		return nil
+	}
+
+	// Try multiple formats Jira might use
+	formats := []string{
+		"2006-01-02T15:04:05.000-0700",
+		"2006-01-02T15:04:05.000Z0700",
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05-0700",
+		"2006-01-02T15:04:05Z",
+		time.RFC3339,
+		time.RFC3339Nano,
+	}
+
+	var err error
+	for _, fmt := range formats {
+		jt.Time, err = time.Parse(fmt, s)
+		if err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 type Board struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
@@ -15,12 +47,12 @@ type Board struct {
 }
 
 type Sprint struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	State     string    `json:"state"`
-	StartDate time.Time `json:"startDate"`
-	EndDate   time.Time `json:"endDate"`
-	Goal      string    `json:"goal"`
+	ID        int      `json:"id"`
+	Name      string   `json:"name"`
+	State     string   `json:"state"`
+	StartDate JiraTime `json:"startDate"`
+	EndDate   JiraTime `json:"endDate"`
+	Goal      string   `json:"goal"`
 }
 
 type Issue struct {
@@ -85,7 +117,7 @@ type issueResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
 		Summary     string `json:"summary"`
-		Description string `json:"description"`
+		Description any    `json:"description"` // Can be string or object
 		IssueType   struct {
 			Name string `json:"name"`
 		} `json:"issuetype"`
@@ -106,10 +138,10 @@ type issueResponse struct {
 		Epic struct {
 			Key string `json:"key"`
 		} `json:"epic"`
-		StoryPoints  float64   `json:"customfield_10020"`
-		AgentName    string    `json:"customfield_10100"`
-		Created      time.Time `json:"created"`
-		Updated      time.Time `json:"updated"`
+		StoryPoints  any      `json:"customfield_10020"` // Can be float64, array, or null
+		AgentName    string   `json:"customfield_10100"`
+		Created      JiraTime `json:"created"`
+		Updated      JiraTime `json:"updated"`
 	} `json:"fields"`
 }
 
@@ -117,7 +149,7 @@ func parseIssue(resp *issueResponse) *Issue {
 	return &Issue{
 		Key:         resp.Key,
 		Summary:     resp.Fields.Summary,
-		Description: resp.Fields.Description,
+		Description: parseDescription(resp.Fields.Description),
 		IssueType:   resp.Fields.IssueType.Name,
 		Priority:    resp.Fields.Priority.Name,
 		Status:      resp.Fields.Status.Name,
@@ -125,12 +157,71 @@ func parseIssue(resp *issueResponse) *Issue {
 		SprintName:  resp.Fields.Sprint.Name,
 		Assignee:    resp.Fields.Assignee.DisplayName,
 		Labels:      resp.Fields.Labels,
-		StoryPoints: resp.Fields.StoryPoints,
+		StoryPoints: parseStoryPoints(resp.Fields.StoryPoints),
 		AgentName:   resp.Fields.AgentName,
 		EpicKey:     resp.Fields.Epic.Key,
-		CreatedAt:   resp.Fields.Created,
-		UpdatedAt:   resp.Fields.Updated,
+		CreatedAt:   resp.Fields.Created.Time,
+		UpdatedAt:   resp.Fields.Updated.Time,
 	}
+}
+
+func parseDescription(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	// Jira v3 uses ADF (Atlassian Document Format) - extract text content
+	if m, ok := v.(map[string]any); ok {
+		return extractTextFromADF(m)
+	}
+	return ""
+}
+
+func extractTextFromADF(doc map[string]any) string {
+	content, ok := doc["content"].([]any)
+	if !ok {
+		return ""
+	}
+	var result strings.Builder
+	for _, node := range content {
+		if m, ok := node.(map[string]any); ok {
+			if text, ok := m["text"].(string); ok {
+				result.WriteString(text)
+			}
+			if nested, ok := m["content"].([]any); ok {
+				for _, n := range nested {
+					if nm, ok := n.(map[string]any); ok {
+						if text, ok := nm["text"].(string); ok {
+							result.WriteString(text)
+						}
+					}
+				}
+			}
+		}
+	}
+	return result.String()
+}
+
+func parseStoryPoints(v any) float64 {
+	if v == nil {
+		return 0
+	}
+	if f, ok := v.(float64); ok {
+		return f
+	}
+	// Sometimes returned as array with objects containing value
+	if arr, ok := v.([]any); ok {
+		for _, item := range arr {
+			if m, ok := item.(map[string]any); ok {
+				if val, ok := m["value"].(float64); ok {
+					return val
+				}
+			}
+		}
+	}
+	return 0
 }
 
 func (i *Issue) HasLabel(label string) bool {

@@ -31,9 +31,14 @@ type JiraConfig struct {
 }
 
 type ConfluenceConfig struct {
-	BaseURL string `yaml:"base_url"`
-	User    string `yaml:"user"`
-	Token   string `yaml:"token"`
+	BaseURL             string `yaml:"base_url"`
+	User                string `yaml:"user"`
+	Token               string `yaml:"token"`
+	SpaceKey            string `yaml:"space_key"`
+	ReportsParentPageID string `yaml:"reports_parent_page_id"`
+	AutoPost            bool   `yaml:"auto_post"`
+	CacheTTLMin         int    `yaml:"cache_ttl_min"`
+	Cloud               bool   `yaml:"cloud"`
 }
 
 type AgentConfig struct {
@@ -162,6 +167,12 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("DANDORI_CONFLUENCE_BASE_URL"); v != "" {
 		cfg.Confluence.BaseURL = v
+	}
+	if v := os.Getenv("DANDORI_CONFLUENCE_SPACE_KEY"); v != "" {
+		cfg.Confluence.SpaceKey = v
+	}
+	if v := os.Getenv("DANDORI_CONFLUENCE_REPORTS_PARENT_PAGE_ID"); v != "" {
+		cfg.Confluence.ReportsParentPageID = v
 	}
 	if v := os.Getenv("DANDORI_AGENT_TYPE"); v != "" {
 		cfg.Agent.Type = v

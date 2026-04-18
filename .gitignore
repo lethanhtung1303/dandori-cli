@@ -4,3 +4,8 @@ bin/
 coverage.out
 coverage.html
 .DS_Store
+
+# Credentials
+.env
+.env.*
+*.env

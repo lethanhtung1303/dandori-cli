@@ -233,7 +233,7 @@ func (c *Client) SearchIssues(jql string, maxResults int) ([]Issue, error) {
 	}
 
 	var resp issuesResponse
-	if err := c.post("/rest/api/2/search", body, &resp); err != nil {
+	if err := c.post("/rest/api/3/search/jql", body, &resp); err != nil {
 		return nil, err
 	}
 

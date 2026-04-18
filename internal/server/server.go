@@ -42,6 +42,8 @@ func New(db *serverdb.DB, cfg Config) *Server {
 
 	s.router.Get("/", s.handleDashboard)
 
+	s.registerAnalyticsRoutes()
+
 	return s
 }
 
