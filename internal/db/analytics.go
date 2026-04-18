@@ -213,6 +213,62 @@ func (l *LocalDB) GetCostBySprint() ([]LocalCostGroup, error) {
 	return l.queryCostGroups(query)
 }
 
+// SyncableRun represents a run that needs to be synced to Jira
+type SyncableRun struct {
+	ID           string
+	JiraIssueKey string
+	AgentName    string
+	Status       string
+	Duration     float64
+	Cost         float64
+	Tokens       int
+}
+
+// GetRunsToSync returns completed runs that haven't been synced to Jira
+func (l *LocalDB) GetRunsToSync(taskFilter string) ([]SyncableRun, error) {
+	query := `
+		SELECT id, COALESCE(jira_issue_key, ''), agent_name, status,
+			COALESCE(duration_sec, 0), COALESCE(cost_usd, 0),
+			COALESCE(input_tokens + output_tokens, 0)
+		FROM runs
+		WHERE status IN ('done', 'failed')
+		AND jira_issue_key IS NOT NULL
+		AND jira_issue_key != ''
+		AND COALESCE(synced, 0) = 0
+	`
+	args := []any{}
+
+	if taskFilter != "" {
+		query += " AND jira_issue_key = ?"
+		args = append(args, taskFilter)
+	}
+
+	query += " ORDER BY started_at DESC"
+
+	rows, err := l.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query runs to sync: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []SyncableRun
+	for rows.Next() {
+		var r SyncableRun
+		if err := rows.Scan(&r.ID, &r.JiraIssueKey, &r.AgentName, &r.Status,
+			&r.Duration, &r.Cost, &r.Tokens); err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, nil
+}
+
+// MarkRunSynced marks a run as synced to Jira
+func (l *LocalDB) MarkRunSynced(runID string) error {
+	_, err := l.db.Exec("UPDATE runs SET synced = 1 WHERE id = ?", runID)
+	return err
+}
+
 // GetSprintSummary returns detailed stats for a specific sprint
 func (l *LocalDB) GetSprintSummary(sprintID string) (*SprintSummary, error) {
 	summary := &SprintSummary{
