@@ -80,15 +80,16 @@ func runAssignSuggest(cmd *cobra.Command, args []string) error {
 		Components: []string{}, // TODO: extract components
 	}
 
-	// Fetch agents from server
+	// Fetch agents from server, fallback to local config
 	agents, err := fetchAgentsFromServer(cfg.ServerURL)
-	if err != nil {
-		return fmt.Errorf("fetch agents: %w", err)
-	}
-
-	if len(agents) == 0 {
-		fmt.Println("No agents registered. Use 'dandori init' on workstations to register agents.")
-		return nil
+	if err != nil || len(agents) == 0 {
+		// Fallback to local config
+		agents = fetchAgentsFromConfig(cfg)
+		if len(agents) == 0 {
+			fmt.Println("No agents registered. Use 'dandori init' on workstations to register agents.")
+			return nil
+		}
+		fmt.Println("(Using local agent config - server not available)")
 	}
 
 	// Run suggestion engine
