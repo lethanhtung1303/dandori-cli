@@ -395,6 +395,101 @@ test_group_i() {
 }
 
 # ============================================================================
+# Group K: Shell Alias Transparency
+# ============================================================================
+
+test_group_k() {
+    log_section "Group K: Shell Alias Transparency"
+
+    local rc_file="/tmp/dandori-e2e-rc"
+    : > "$rc_file"
+
+    log_test "K1" "init --shell writes alias block"
+    # Use the shellrc package via a tiny helper: call init with a fake HOME+SHELL
+    SHELL=/bin/zsh HOME=/tmp/fake-home "$DANDORI" init --shell > /dev/null 2>&1 || true
+    # Simpler: invoke the library directly via the CLI by overriding HOME
+    HOME="/tmp/fake-rc-home"
+    rm -rf "$HOME"
+    mkdir -p "$HOME"
+    SHELL=/bin/zsh HOME="$HOME" bash -c "echo yes | '$DANDORI' init --shell" > /dev/null 2>&1 || true
+    if grep -q "dandori aliases" "$HOME/.zshrc" 2>/dev/null; then
+        pass "K1" "Alias block written to .zshrc"
+    else
+        fail "K1" "No alias block found"
+    fi
+
+    log_test "K2" "Re-run is idempotent"
+    SHELL=/bin/zsh HOME="$HOME" bash -c "echo yes | '$DANDORI' init --shell" > /dev/null 2>&1 || true
+    local count=$(grep -c "dandori aliases (managed)" "$HOME/.zshrc" 2>/dev/null | head -1)
+    # Expect 2 occurrences (start + end marker) after one install, 2 after two installs
+    [ "$count" = "2" ] && pass "K2" "No duplication (markers=$count)" || fail "K2" "Got markers=$count"
+
+    log_test "K3" "--no-shell skips alias"
+    local HOME2="/tmp/fake-rc-home-noshell"
+    rm -rf "$HOME2"
+    mkdir -p "$HOME2"
+    SHELL=/bin/zsh HOME="$HOME2" bash -c "echo yes | '$DANDORI' init --no-shell" > /dev/null 2>&1 || true
+    if [ ! -f "$HOME2/.zshrc" ] || ! grep -q "dandori aliases" "$HOME2/.zshrc" 2>/dev/null; then
+        pass "K3" "No alias written with --no-shell"
+    else
+        fail "K3" "Alias written despite --no-shell"
+    fi
+
+    log_test "K4" "Detects zsh from SHELL"
+    SHELL=/bin/zsh HOME="$HOME" bash -c "echo yes | '$DANDORI' init --shell" > /tmp/k4-out 2>&1 || true
+    grep -q ".zshrc" /tmp/k4-out && pass "K4" "Used .zshrc for zsh shell" || fail "K4" "Wrong rc file"
+
+    log_test "K5" "Block has start+end markers"
+    grep -q ">>> dandori aliases" "$HOME/.zshrc" && grep -q "<<< dandori aliases" "$HOME/.zshrc" && \
+      pass "K5" "Both markers present" || fail "K5" "Missing markers"
+
+    # Restore HOME
+    HOME="$(getent passwd $(whoami) 2>/dev/null | cut -d: -f6 || echo /Users/phucnt)"
+    export HOME="/Users/phucnt"
+}
+
+# ============================================================================
+# Group L: Watch Daemon
+# ============================================================================
+
+test_group_l() {
+    log_section "Group L: Watch Daemon"
+
+    # Create fake Claude projects root with a fake session
+    local fake_root=$(mktemp -d)
+    local project_dir="$fake_root/-fake-proj"
+    mkdir -p "$project_dir"
+
+    # Create an orphan session with real token data
+    cat > "$project_dir/orphan-e2e-session.jsonl" <<'EOF'
+{"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":500,"output_tokens":200,"cache_read_input_tokens":1000,"cache_creation_input_tokens":100}}}
+EOF
+
+    log_test "L1" "watch --once runs and exits"
+    "$DANDORI" watch --once --root "$fake_root" > /tmp/watch-out 2>&1
+    local rc=$?
+    [ "$rc" -eq 0 ] && pass "L1" "Exit 0" || fail "L1" "Exit $rc"
+
+    log_test "L2" "Watch output mentions poll complete"
+    grep -q "single poll complete" /tmp/watch-out && pass "L2" "Poll completed" || fail "L2" "No completion log"
+
+    log_test "L3" "Orphan run inserted in DB"
+    local orphan_count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM runs WHERE session_id='orphan-e2e-session'")
+    [ "$orphan_count" -eq 1 ] && pass "L3" "1 orphan run inserted" || fail "L3" "Got $orphan_count"
+
+    log_test "L4" "Orphan run has tokens extracted"
+    local tokens=$(sqlite3 "$DB" "SELECT input_tokens + output_tokens FROM runs WHERE session_id='orphan-e2e-session'")
+    [ "${tokens:-0}" -ge 700 ] && pass "L4" "Tokens=$tokens" || fail "L4" "Tokens=$tokens"
+
+    log_test "L5" "Re-run does not duplicate"
+    "$DANDORI" watch --once --root "$fake_root" > /dev/null 2>&1
+    local recount=$(sqlite3 "$DB" "SELECT COUNT(*) FROM runs WHERE session_id='orphan-e2e-session'")
+    [ "$recount" -eq 1 ] && pass "L5" "Still 1 row (idempotent)" || fail "L5" "Got $recount"
+
+    rm -rf "$fake_root"
+}
+
+# ============================================================================
 # Group J: Long-running / Heavy Task
 # ============================================================================
 
@@ -458,6 +553,8 @@ main() {
     test_group_h
     test_group_i
     test_group_j
+    test_group_k
+    test_group_l
 
     # Summary
     log_section "SUMMARY"

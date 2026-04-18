@@ -10,6 +10,7 @@ Development history organized by date and topic.
 | [phase-04-05](2026-04-18-phase-04-05.md) | Confluence, Server | ✅ |
 | [phase-06-07](2026-04-18-phase-06-07.md) | Assignment, Analytics | ✅ |
 | [phase-08-final](2026-04-18-phase-08-final.md) | E2E, Integration, Summary | ✅ |
+| [shell-alias-watch](2026-04-18-shell-alias-watch-daemon.md) | Shell transparency + watch daemon | ✅ |
 
 ## Progress
 

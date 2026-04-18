@@ -114,9 +114,29 @@
 | J4 | Duration >= 3 seconds | Real long-running capture |
 | J5 | Heavy run syncs to Jira Done | Full pipeline on long task |
 
+### Group K: Shell Alias Transparency (5 cases)
+
+| ID | Test Case | Verify |
+|----|-----------|--------|
+| K1 | `dandori init --shell` adds alias block | RC file contains marker + alias |
+| K2 | Re-running init is idempotent | Alias block not duplicated |
+| K3 | `dandori init --no-shell` skips aliases | RC file unchanged |
+| K4 | Auto-detects shell from $SHELL | zsh→.zshrc, bash→.bashrc |
+| K5 | Alias block has uninstall marker | Has both start and end markers |
+
+### Group L: Watch Daemon (5 cases)
+
+| ID | Test Case | Verify |
+|----|-----------|--------|
+| L1 | `dandori watch --once` exits after one poll | Returns 0 |
+| L2 | Watch lists existing session dirs | Finds ~/.claude/projects/ |
+| L3 | Watch creates orphan run for new session | DB row added with jira_issue_key NULL |
+| L4 | Watch extracts tokens from session | input_tokens > 0 captured |
+| L5 | Re-running watch skips already-tracked sessions | No duplicate rows |
+
 ## Summary
 
-**Total: 47 test cases across 10 groups**
+**Total: 57 test cases across 12 groups**
 
 - Configuration: 3
 - Jira Lifecycle: 4
