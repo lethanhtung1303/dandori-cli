@@ -62,4 +62,5 @@ make test-e2e     # docker-compose + integration test
 2. `golangci-lint run` clean
 3. Manual test the relevant `dandori` command
 4. Check off items in the phase's todo list
-5. Commit: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
+5. **Update `docs/devlog.md`** before commit
+6. Commit: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`

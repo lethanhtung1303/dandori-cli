@@ -1,0 +1,39 @@
+# dandori-cli Devlog
+
+## 2026-04-18 | Phase 01-03 Foundation
+
+**Done:**
+- Phase 01: Go module, Cobra CLI, SQLite, config, models, hash chain
+- Phase 02: 3-layer wrapper (fork/exec, tailer, skill events), cost calc
+- Phase 03: Jira client, poller, comments, transitions
+
+**Stats:** 3153 LOC, 30 Go files, 88 tests
+
+**Coverage:**
+| Package | % |
+|---------|---|
+| util | 100 |
+| model | 100 |
+| event | 82 |
+| db | 68 |
+| config | 49 |
+| jira | 41 |
+| cmd | 32 |
+| wrapper | 29 |
+
+**CK Skills Used:**
+- Không dùng skill catalog trong session này
+- Implement trực tiếp theo plan có sẵn (`plans/260418-1301-dandori-cli/`)
+- TDD approach: viết tests sau code, sau đó bổ sung tests để tăng coverage
+
+**Commands Working:**
+```
+dandori init      # setup ~/.dandori/
+dandori run       # wrap agent execution
+dandori event     # Layer 3 events
+dandori status    # view runs
+dandori sync      # stub for Phase 05
+dandori version
+```
+
+**Next:** Phase 04 (Confluence) hoặc Phase 05 (Monitoring Server)
