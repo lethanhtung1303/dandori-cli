@@ -4,6 +4,19 @@
 >
 > **Not** the full Dandori platform (`dandori/` — Node.js/Express). This is a separate, focused Go tool.
 
+## Vision
+
+**Outer harness concept**: AI agents (Claude Code, Codex, Copilot) are excellent executors, but organizations lack the management layer around them — cost visibility, audit trail, task tracking, analytics. That management layer is the "outer harness". See [`dandori-pitch/outer-harness.md`](../dandori-pitch/outer-harness.md) for the full concept (inner vs outer, 5 pillars).
+
+**dandori-cli proves one thing**: a software project can be **operated by AI agent developers**, managed by **human PO/PDM and human QA** — with no human developers in the loop.
+
+- **PO/PDM** writes requirements on Confluence, creates PBIs on Jira, drags into sprint, reviews agent output, confirms agent assignments
+- **QA** writes test cases on Confluence, reviews agent reports on Confluence, tracks agent quality/success rate on dashboard
+- **Agent developers** (Claude Code) receive tasks from dandori-cli, execute autonomously, report results back to Jira + Confluence
+- **dandori-cli** is the bridge: detects sprint tasks, assigns agents, wraps execution, tracks everything, provides analytics
+
+If this works, it proves that the PO/QA + agent model is viable for real projects — and that the outer harness is the missing piece that makes it work.
+
 ## Plan
 
 All architecture, data model, phases, project structure, and tech stack are in:
