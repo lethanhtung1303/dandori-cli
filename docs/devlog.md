@@ -461,10 +461,10 @@ Total: $0.27, 3 runs, 100% success
 | 05 Monitoring Server | ✅ Complete | 15/15 |
 | 06 Agent Assignment | ✅ Complete | 14/14 |
 | 07 Analytics | ✅ Complete | 15/15 |
-| 08 E2E Flow | 🔄 80% | 8/10 |
+| 08 E2E Flow | ✅ Complete | 10/10 |
 
-**Overall Progress: 95/97 items = 97.9%**
+**Overall Progress: 97/97 items = 100%**
 
-**Remaining (Phase 08):**
-- [ ] Setup guide documentation
-- [ ] FAQ / troubleshooting documentation
+**Documentation Added:**
+- `docs/setup-guide.md` — Quick start, config, workflow
+- `docs/faq.md` — Troubleshooting, common issues, command reference
