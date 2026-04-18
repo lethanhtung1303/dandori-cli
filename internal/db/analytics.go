@@ -1,0 +1,188 @@
+package db
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+)
+
+// LocalAgentStat represents local analytics for an agent
+type LocalAgentStat struct {
+	AgentName   string
+	RunCount    int
+	SuccessRate float64
+	TotalCost   float64
+	AvgCost     float64
+	AvgDuration float64
+	TotalTokens int
+}
+
+// LocalCostGroup represents cost grouped by dimension
+type LocalCostGroup struct {
+	Group    string
+	Cost     float64
+	RunCount int
+	Tokens   int
+}
+
+// LocalRunSummary represents a run summary
+type LocalRunSummary struct {
+	ID           string
+	JiraIssueKey string
+	AgentName    string
+	Status       string
+	Duration     float64
+	Cost         float64
+	Tokens       int
+	StartedAt    time.Time
+}
+
+// GetAgentStats returns analytics for all agents from local SQLite
+func (l *LocalDB) GetAgentStats() ([]LocalAgentStat, error) {
+	query := `
+		SELECT
+			agent_name,
+			COUNT(*) as run_count,
+			ROUND(CAST(SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100, 1) as success_rate,
+			COALESCE(SUM(cost_usd), 0) as total_cost,
+			COALESCE(AVG(cost_usd), 0) as avg_cost,
+			COALESCE(AVG(duration_sec), 0) as avg_duration,
+			COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens
+		FROM runs
+		GROUP BY agent_name
+		ORDER BY total_cost DESC
+	`
+
+	rows, err := l.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("query agent stats: %w", err)
+	}
+	defer rows.Close()
+
+	var stats []LocalAgentStat
+	for rows.Next() {
+		var s LocalAgentStat
+		if err := rows.Scan(&s.AgentName, &s.RunCount, &s.SuccessRate,
+			&s.TotalCost, &s.AvgCost, &s.AvgDuration, &s.TotalTokens); err != nil {
+			return nil, err
+		}
+		stats = append(stats, s)
+	}
+	return stats, nil
+}
+
+// GetCostByAgent returns cost breakdown by agent
+func (l *LocalDB) GetCostByAgent() ([]LocalCostGroup, error) {
+	return l.getCostBy("agent_name")
+}
+
+// GetCostByTask returns cost breakdown by Jira task
+func (l *LocalDB) GetCostByTask() ([]LocalCostGroup, error) {
+	return l.getCostBy("jira_issue_key")
+}
+
+// GetCostByDay returns cost breakdown by day
+func (l *LocalDB) GetCostByDay() ([]LocalCostGroup, error) {
+	query := `
+		SELECT
+			date(started_at) as day,
+			COALESCE(SUM(cost_usd), 0) as cost,
+			COUNT(*) as run_count,
+			COALESCE(SUM(input_tokens + output_tokens), 0) as tokens
+		FROM runs
+		WHERE started_at IS NOT NULL
+		GROUP BY date(started_at)
+		ORDER BY day DESC
+		LIMIT 30
+	`
+	return l.queryCostGroups(query)
+}
+
+func (l *LocalDB) getCostBy(column string) ([]LocalCostGroup, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(%s, 'unknown') as grp,
+			COALESCE(SUM(cost_usd), 0) as cost,
+			COUNT(*) as run_count,
+			COALESCE(SUM(input_tokens + output_tokens), 0) as tokens
+		FROM runs
+		GROUP BY %s
+		ORDER BY cost DESC
+	`, column, column)
+	return l.queryCostGroups(query)
+}
+
+func (l *LocalDB) queryCostGroups(query string) ([]LocalCostGroup, error) {
+	rows, err := l.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("query cost: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []LocalCostGroup
+	for rows.Next() {
+		var g LocalCostGroup
+		if err := rows.Scan(&g.Group, &g.Cost, &g.RunCount, &g.Tokens); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+// GetRecentRuns returns recent runs
+func (l *LocalDB) GetRecentRuns(limit int) ([]LocalRunSummary, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `
+		SELECT
+			id,
+			COALESCE(jira_issue_key, '') as jira_issue_key,
+			agent_name,
+			status,
+			COALESCE(duration_sec, 0) as duration,
+			COALESCE(cost_usd, 0) as cost,
+			COALESCE(input_tokens + output_tokens, 0) as tokens,
+			started_at
+		FROM runs
+		ORDER BY started_at DESC
+		LIMIT ?
+	`
+
+	rows, err := l.db.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query recent runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []LocalRunSummary
+	for rows.Next() {
+		var r LocalRunSummary
+		var startedAt string
+		if err := rows.Scan(&r.ID, &r.JiraIssueKey, &r.AgentName, &r.Status,
+			&r.Duration, &r.Cost, &r.Tokens, &startedAt); err != nil {
+			return nil, err
+		}
+		r.StartedAt, _ = time.Parse(time.RFC3339, startedAt)
+		runs = append(runs, r)
+	}
+	return runs, nil
+}
+
+// GetTotalStats returns overall statistics
+func (l *LocalDB) GetTotalStats() (runCount int, totalCost float64, totalTokens int, err error) {
+	query := `
+		SELECT
+			COUNT(*) as run_count,
+			COALESCE(SUM(cost_usd), 0) as total_cost,
+			COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens
+		FROM runs
+	`
+	err = l.db.QueryRow(query).Scan(&runCount, &totalCost, &totalTokens)
+	if err == sql.ErrNoRows {
+		return 0, 0, 0, nil
+	}
+	return
+}
