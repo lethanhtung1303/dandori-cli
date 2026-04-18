@@ -264,3 +264,40 @@ POST /api/assignments/{id}/confirm    # Confirm assignment
 **Stats:** 208 tests pass across 15 packages
 
 **Phase 06 Complete**
+
+---
+
+## 2026-04-18 | Phase 08 E2E Integration Tests
+
+**Done:**
+- Full E2E test suite with real Atlassian (CLITEST project)
+- Test: Sprint fetch → Agent suggest → Jira comment → Run simulate → Confluence report
+- Test: Confluence context assembly from multiple pages
+- Test: Jira poller detecting tasks and posting suggestions
+
+**E2E Results (real Atlassian):**
+```
+=== TestE2E_FullSprintCycle (3.15s) ===
+  - Sprint: 4 issues detected
+  - Scoring: CLITEST-1 (Story) → beta, CLITEST-2 (Bug) → alpha
+  - Jira: Suggestion + completion comments posted
+  - Confluence: Report page created with files, decisions, git diff
+
+=== TestE2E_ConfluenceContextFetch (1.17s) ===
+  - 8 pages found in CLITEST space
+  - Context assembled: 832 bytes from 2 pages
+
+=== TestE2E_JiraPollerFlow (3.89s) ===
+  - 4 tasks detected
+  - 4 suggestion comments auto-posted
+```
+
+**Commands Verified:**
+```
+dandori assign suggest CLITEST-1   ✅
+dandori assign set CLITEST-1 alpha ✅ (comment posted)
+```
+
+**Stats:** 208 unit tests + 3 E2E tests = 211 total
+
+**Phase 08 Complete**
