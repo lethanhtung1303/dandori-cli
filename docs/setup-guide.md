@@ -10,15 +10,20 @@
 ## Quick Start
 
 ```bash
-# 1. Build
+# 1. Build (or `go install github.com/phuc-nt/dandori-cli@latest`)
 go build -o bin/dandori .
 
-# 2. Initialize config
+# 2. Initialize config + DB + shell aliases
 ./bin/dandori init
 
-# 3. Edit config
+# 3. Restart shell (or source rc) so `claude`/`codex` aliases load
+source ~/.zshrc   # or ~/.bashrc
+
+# 4. Edit config
 vim ~/.dandori/config.yaml
 ```
+
+**Skip shell aliases:** `dandori init --no-shell`. You'll still need to run commands explicitly as `dandori run -- claude "..."`.
 
 ## Configuration
 
@@ -67,20 +72,38 @@ confluence:
 
 ```bash
 # 1. Start a task
-./bin/dandori task start PROJ-123
+dandori task start PROJ-123
 
-# 2. Run agent with tracking
-./bin/dandori run --task PROJ-123 -- claude "implement feature X"
+# 2. Run agent — either transparent (via alias) or explicit
+claude "implement feature X"                          # via shell alias
+# OR: dandori run --task PROJ-123 -- claude "..."     # explicit
 
 # 3. Sync status back to Jira
-./bin/dandori jira-sync
+dandori jira-sync
 
 # 4. Write report to Confluence
-./bin/dandori conf-write --task PROJ-123
+dandori conf-write --task PROJ-123
 
 # 5. View analytics
-./bin/dandori dashboard
+dandori dashboard
 ```
+
+## Background Capture (Optional)
+
+If you sometimes bypass the wrapper with `\claude` or forget the alias, run the watcher to capture those runs:
+
+```bash
+# Manual single pass
+dandori watch --once
+
+# Continuous foreground (Ctrl-C to stop)
+dandori watch
+
+# Auto-start on macOS via launchd
+launchctl submit -l com.phuc.dandori-watch -- $(which dandori) watch
+```
+
+The watcher polls `~/.claude/projects/*/*.jsonl` and inserts orphan runs with `agent_name='orphan'`.
 
 ## Server Setup (Optional)
 
@@ -116,6 +139,7 @@ DANDORI_DB_HOST=localhost ./bin/dandori-server
 
 ## Next Steps
 
+- Read [User Guide](user-guide.md) for step-by-step use cases
 - Read [FAQ](faq.md) for common issues
 - Check `dandori --help` for all commands
-- See devlog.md for implementation details
+- See [devlog/](devlog/) for implementation details

@@ -65,6 +65,36 @@ confluence:
 pkill -f "dandori run"
 ```
 
+### Shell Alias Not Working
+
+**Symptom:** Typing `claude "..."` runs bare Claude without wrapping.
+
+**Fix:**
+1. Restart shell or `source ~/.zshrc`
+2. Check alias is installed: `grep "dandori aliases" ~/.zshrc`
+3. If missing, run `dandori init --shell`
+4. Verify alias expands: `type claude` → should show `claude is an alias for 'dandori run -- claude'`
+
+### Watch Daemon Misses Runs
+
+**Symptom:** `dandori watch` doesn't pick up recent `\claude` invocations.
+
+**Fix:**
+1. Verify root is correct: `dandori watch --once --root ~/.claude/projects`
+2. Check session file exists: `ls ~/.claude/projects/*/\*.jsonl | tail -3`
+3. Orphan runs use `agent_name='orphan'` — filter analytics: `sqlite3 ~/.dandori/local.db "SELECT * FROM runs WHERE agent_name='orphan'"`
+
+### Uninstall Shell Aliases
+
+```bash
+# Manually edit the rc file and remove block between markers:
+#   # >>> dandori aliases (managed) >>>
+#   ...
+#   # <<< dandori aliases (managed) <<<
+# Or use the markers as grep anchors:
+sed -i '' '/>>> dandori aliases/,/<<< dandori aliases/d' ~/.zshrc
+```
+
 ## Configuration Questions
 
 ### How to use multiple agents?
@@ -102,13 +132,15 @@ confluence:
 
 | Command | Purpose |
 |---------|---------|
-| `dandori init` | Create config + database |
-| `dandori run` | Execute agent with tracking |
+| `dandori init` | Create config + database + shell aliases |
+| `dandori run` | Execute agent with tracking (explicit) |
+| `dandori watch` | Background capture of orphan runs |
 | `dandori task start/done/info` | Manage Jira task lifecycle |
 | `dandori jira-sync` | Sync run status to Jira |
 | `dandori conf-write` | Write report to Confluence |
 | `dandori analytics` | View local analytics |
 | `dandori dashboard` | Open web dashboard |
+| `dandori assign suggest/set` | Agent assignment |
 | `dandori status` | Show recent runs |
 | `dandori sync` | Upload to server (if configured) |
 

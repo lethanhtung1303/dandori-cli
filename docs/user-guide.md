@@ -1,0 +1,200 @@
+# dandori-cli User Guide
+
+Step-by-step guide organized by use case.
+
+---
+
+## Install
+
+```bash
+go install github.com/phuc-nt/dandori-cli@latest
+dandori init         # installs shell aliases by default
+source ~/.zshrc      # or restart your shell
+```
+
+From now on, `claude "..."` is automatically tracked. To bypass per-invocation: `\claude "..."`.
+
+---
+
+## Use Case 1 — Solo Engineer: Track My Agent Runs
+
+**Goal:** Every `claude` invocation is recorded. You can review cost and time spent.
+
+```bash
+# One-time setup
+dandori init
+
+# Use Claude normally — wrapper transparently tracks via alias
+claude "refactor auth module"
+
+# View last 10 runs
+dandori analytics runs
+
+# Open visual dashboard
+dandori dashboard
+```
+
+**What's recorded:** run_id, cwd, git HEAD, duration, exit code, input/output tokens, cache tokens, model, cost.
+
+---
+
+## Use Case 2 — Track Agent Runs Tied to Jira Tasks
+
+**Goal:** Each agent run is linked to a Jira task. Jira status updates automatically when the task completes.
+
+```bash
+# Configure Jira (first time only)
+vim ~/.dandori/config.yaml
+
+# Start a task (transitions Jira to In Progress + adds comment)
+dandori task start PROJ-123
+
+# Run agent tied to the task
+claude "implement feature X"   # or: dandori run --task PROJ-123 -- claude "..."
+
+# Sync completed runs to Jira (transitions to Done + posts completion comment)
+dandori jira-sync
+```
+
+**Config snippet:**
+```yaml
+jira:
+  base_url: "https://YOUR-DOMAIN.atlassian.net"
+  user: "you@example.com"
+  token: "YOUR_API_TOKEN"
+  project_key: "PROJ"
+  cloud: true
+```
+
+---
+
+## Use Case 3 — Post Reports to Confluence
+
+**Goal:** After each run, a Confluence page is created with run metadata, files changed, cost, and git diff.
+
+```bash
+# Preview the report first
+dandori conf-write --task PROJ-123 --dry-run
+
+# Create the page
+dandori conf-write --task PROJ-123
+
+# Output: Created report: PROJ-123 — Run abc123 — 2026-04-18
+#         Page ID: 66045
+#         URL: https://YOUR-DOMAIN.atlassian.net/wiki/pages/66045
+```
+
+**Config snippet:**
+```yaml
+confluence:
+  base_url: "https://YOUR-DOMAIN.atlassian.net/wiki"
+  space_key: "PROJ"
+  cloud: true
+```
+
+---
+
+## Use Case 4 — Capture Runs Even Without the Wrapper
+
+**Goal:** You (or a teammate) ran `\claude` to bypass the wrapper, or forgot the alias. Catch those runs after the fact.
+
+```bash
+# Single pass (good for cron, launchd, systemd timers)
+dandori watch --once
+
+# Long-running foreground (Ctrl-C to stop)
+dandori watch
+
+# Custom cadence
+dandori watch --interval 30
+```
+
+The watcher scans `~/.claude/projects/*/*.jsonl`, finds sessions with no matching DB run, and inserts them as `agent_name='orphan'` with tokens + cost extracted from the session.
+
+**Auto-start on login (macOS):**
+```bash
+launchctl submit -l com.phuc.dandori-watch -- /usr/local/bin/dandori watch
+```
+
+---
+
+## Use Case 5 — View Team Analytics
+
+**Goal:** See which agents are used most, cost trends, success rates.
+
+```bash
+# CLI tables
+dandori analytics runs          # recent runs
+dandori analytics agents        # stats per agent
+dandori analytics cost          # cost breakdown
+
+# Web dashboard with charts
+dandori dashboard               # opens browser to http://localhost:8088
+```
+
+The dashboard has:
+- Total cost / runs / tokens overview
+- Agent leaderboard
+- Per-task cost breakdown (Jira links clickable)
+- Recent runs timeline
+
+---
+
+## Use Case 6 — PO/PDM: Assign Agent to a New Task
+
+**Goal:** Sprint poller suggests an agent when new tasks appear; PO confirms in Jira.
+
+```bash
+# Get suggestion with scores
+dandori assign suggest PROJ-123
+
+# Example output:
+#   alpha  85%  (capability match: backend, go)
+#   beta   60%  (backup — capability: frontend)
+
+# Accept a suggestion
+dandori assign set PROJ-123 alpha
+# → posts confirmation comment on Jira
+```
+
+Scoring: capability 40%, issue type 30%, history 20%, load balance 10%.
+
+---
+
+## Use Case 7 — Bypass the Wrapper Once
+
+```bash
+\claude "..."                   # leading backslash bypasses the alias
+```
+
+The run is NOT tracked. Use sparingly; `dandori watch` can catch it later.
+
+---
+
+## Use Case 8 — Multi-workstation: Same Engineer, Different Machines
+
+Each machine has its own `~/.dandori/local.db`. For now, analytics are per-workstation. Cross-workstation aggregation uses the optional monitoring server (`dandori sync` → PostgreSQL).
+
+---
+
+## Common Commands Reference
+
+| Command | Purpose |
+|---------|---------|
+| `dandori init` | Config + DB + shell aliases |
+| `dandori task start/done/info KEY` | Jira task lifecycle |
+| `dandori run --task KEY -- <cmd>` | Explicit wrapper (for cron/scripts) |
+| `dandori watch [--once]` | Catch orphan runs |
+| `dandori jira-sync` | Push run status to Jira |
+| `dandori conf-write --task KEY` | Confluence report |
+| `dandori analytics {runs\|agents\|cost}` | Terminal analytics |
+| `dandori dashboard` | Web UI |
+| `dandori status` | Recent runs summary |
+| `dandori assign suggest/set` | Agent assignment |
+| `dandori sync` | Push events to server (optional) |
+
+---
+
+## Troubleshooting
+
+See [FAQ](faq.md) for known issues and fixes.
