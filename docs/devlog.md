@@ -210,3 +210,57 @@ func (f *FlexID) UnmarshalJSON(b []byte) error {...}
 ```
 
 **Stats:** 190 tests pass across 14 packages
+
+---
+
+## 2026-04-18 | Phase 06 Agent Assignment
+
+**Done:**
+- Scorer: 4-component scoring algorithm (capability 40%, issue type 30%, history 20%, load balance 10%)
+- Engine: rank agents, select best, generate human-readable explanation
+- Server DB: agent_configs + assignments tables
+- Server routes: `/api/agents`, `/api/assignments`
+- CLI: `dandori assign suggest|set|list`
+
+**Stats:** 204 tests pass across 15 packages
+
+**Scoring Algorithm:**
+```
+Score(agent, task) = Σ (weight × match)
+- Capability overlap (40%): intersect(agent.caps, task.labels ∪ components)
+- Issue type preference (30%): exact match = 1.0, neutral = 0.5, mismatch = 0.0
+- Historical success (20%): past success rate on same issue type
+- Load balance (10%): 1.0 - (active_runs / max_concurrent)
+```
+
+**CLI Commands:**
+```
+dandori assign suggest PROJ-123       # Get agent suggestions with scores
+dandori assign set PROJ-123 alpha     # Manually assign agent + post Jira comment
+dandori assign list                   # List pending assignments from server
+```
+
+**API Endpoints:**
+```
+GET  /api/agents                      # List registered agents
+GET  /api/agents/{name}               # Get agent with active run count
+POST /api/agents                      # Register/update agent config
+GET  /api/assignments                 # List assignments (filter by status/agent)
+GET  /api/assignments/{id}            # Get assignment detail
+POST /api/assignments/{id}/confirm    # Confirm assignment
+```
+
+**Poller Integration:**
+- Auto-suggest on new task detected
+- Post suggestion comment to Jira
+- Reminder comment after 2h timeout (configurable)
+- Track pending suggestions until confirmed
+
+**History Provider:**
+- Query past success rate from runs table
+- Cache with configurable TTL (default 1h)
+- Thread-safe with RWMutex
+
+**Stats:** 208 tests pass across 15 packages
+
+**Phase 06 Complete**

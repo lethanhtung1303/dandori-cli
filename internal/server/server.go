@@ -43,8 +43,19 @@ func New(db *serverdb.DB, cfg Config) *Server {
 	s.router.Get("/", s.handleDashboard)
 
 	s.registerAnalyticsRoutes()
+	s.registerAssignmentRoutes()
 
 	return s
+}
+
+func (s *Server) registerAssignmentRoutes() {
+	s.router.Get("/api/assignments", s.handleListAssignments)
+	s.router.Get("/api/assignments/{id}", s.handleGetAssignment)
+	s.router.Post("/api/assignments/{id}/confirm", s.handleConfirmAssignment)
+
+	s.router.Get("/api/agents", s.handleListAgentConfigs)
+	s.router.Get("/api/agents/{name}", s.handleGetAgentConfig)
+	s.router.Post("/api/agents", s.handleUpsertAgentConfig)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -93,6 +93,32 @@ CREATE TABLE IF NOT EXISTS audit_log (
     ts TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS agent_configs (
+    name TEXT PRIMARY KEY,
+    agent_type TEXT NOT NULL DEFAULT 'claude_code',
+    workstation_id TEXT REFERENCES workstations(id),
+    capabilities TEXT[],
+    preferred_issue_types TEXT[],
+    max_concurrent INTEGER DEFAULT 3,
+    team TEXT,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS assignments (
+    id BIGSERIAL PRIMARY KEY,
+    jira_issue_key TEXT NOT NULL,
+    suggested_agent TEXT REFERENCES agent_configs(name),
+    suggested_score INTEGER,
+    suggestion_reason TEXT,
+    confirmed_agent TEXT,
+    status TEXT DEFAULT 'pending',
+    suggested_at TIMESTAMPTZ DEFAULT now(),
+    confirmed_at TIMESTAMPTZ,
+    reminder_sent BOOLEAN DEFAULT FALSE
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_jira ON runs(jira_issue_key);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at);
@@ -100,4 +126,6 @@ CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agent_name);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_jira_tasks_sprint ON jira_tasks(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_jira_tasks_agent ON jira_tasks(agent_name);
+CREATE INDEX IF NOT EXISTS idx_assignments_status ON assignments(status);
+CREATE INDEX IF NOT EXISTS idx_assignments_issue ON assignments(jira_issue_key);
 `
