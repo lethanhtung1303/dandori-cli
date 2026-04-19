@@ -4,18 +4,43 @@
 
 ### Token/Cost Shows $0.00
 
-**Symptom:** Run completes but `dandori analytics runs` shows `$0.00` cost.
+**Symptom:** Run completes but tokens and cost show as 0.
 
-**Cause:** Session log not found or wrong directory.
+**Causes:**
+1. Session log not found (symlink issue on macOS)
+2. Wrong working directory
+3. Session file not yet created when tailer reads
 
-**Fix:** Run `dandori run` from the same directory where Claude Code stores sessions:
+**Fix 1: Symlink issue (macOS)**
+
+On macOS, `/tmp` is a symlink to `/private/tmp`. If you run from `/tmp/project`:
 ```bash
-# Check Claude project directory exists
-ls ~/.claude/projects/-$(pwd | tr '/' '-')/
+# Claude stores session at:
+~/.claude/projects/-private-tmp-project/
 
-# Run from project root, not /tmp or other locations
-cd /path/to/your/project
-./bin/dandori run --task PROJ-1 -- claude "..."
+# But dandori looks for:
+~/.claude/projects/-tmp-project/  # Wrong!
+```
+
+**Solution:** Use real path or work from non-symlinked directory:
+```bash
+cd /private/tmp/project  # Use real path
+# OR
+cd ~/projects/myproject  # Use home directory
+```
+
+**Fix 2: Check session directory exists**
+```bash
+# Get the expected directory name
+echo "-$(pwd | tr '/' '-')"
+
+# Check if it exists
+ls ~/.claude/projects/-$(pwd | tr '/' '-')/
+```
+
+**Fix 3: Use watch to capture orphan sessions**
+```bash
+dandori watch --once
 ```
 
 ### Jira Connection Failed

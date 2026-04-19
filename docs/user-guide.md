@@ -40,7 +40,7 @@ dandori dashboard
 
 ## Use Case 2 — Run Agent with Full Task Context (Recommended)
 
-**Goal:** Agent automatically receives full context from Jira issue + linked Confluence docs. No manual copy-paste.
+**Goal:** Agent automatically receives full context from Jira issue + linked Confluence docs. All activities tracked and synced to Jira.
 
 ```bash
 # Configure Jira + Confluence (first time only)
@@ -54,15 +54,28 @@ dandori task run PROJ-123
 # 2. Extracts Confluence links from description
 # 3. Fetches linked Confluence page content
 # 4. Writes context to temp file
-# 5. Runs agent with context
-# 6. Tracks run (tokens, cost, duration)
-# 7. On success: transitions Jira to Done + adds completion comment
+# 5. Transitions Jira to "In Progress" + adds start comment
+# 6. Runs agent with context injected into prompt
+# 7. Captures tokens, cost, duration from session log
+# 8. Captures git changes (files, commits)
+# 9. On success: transitions Jira to "Done" + adds completion comment with:
+#    - Run statistics (agent, duration, cost, tokens, model)
+#    - Git HEAD before → after
+#    - Files changed
+#    - Commits made
+#    - Acceptance criteria for verification
 ```
 
 **Preview context without running:**
 ```bash
 dandori task run PROJ-123 --dry-run
 ```
+
+**Important:** Always use `dandori task run` (not `dandori run`) when working on Jira tasks. This ensures:
+- Full context injection from Jira + Confluence
+- Automatic Jira status transitions
+- Comprehensive completion comments with all activity details
+- Proper token/cost tracking
 
 **Config snippet:**
 ```yaml
@@ -306,6 +319,42 @@ h3. Output Location
 ```
 
 ---
+
+## Best Practices
+
+### Use `task run` for Jira Tasks
+
+| Command | Use When |
+|---------|----------|
+| `dandori task run KEY` | Working on Jira tasks (recommended) |
+| `dandori run -- claude "..."` | Ad-hoc work without Jira link |
+| `dandori run --task KEY -- claude "..."` | Manual prompt with Jira link |
+
+**Why `task run` is better:**
+- Auto-fetches context from Jira + Confluence
+- Agent has full task details without manual copy-paste
+- Comprehensive Jira comments with activity details
+- Proper token/cost capture
+
+### Ensure Agent Commits Changes
+
+For git changes to appear in Jira comments, the agent must commit:
+
+```bash
+# Good: Agent commits changes
+dandori task run PROJ-123 -- claude -p "Add login feature and commit"
+
+# Git changes in Jira comment:
+#   Files Changed: src/auth/login.go
+#   Commits: abc123 feat: add login
+```
+
+### Verify Token Capture
+
+If tokens show as 0, check:
+1. Config has correct session directory
+2. No symlink issues (`/tmp` vs `/private/tmp` on macOS)
+3. Run `dandori watch --once` to capture from session files
 
 ## Troubleshooting
 
