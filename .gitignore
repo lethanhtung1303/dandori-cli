@@ -3,6 +3,9 @@ bin/
 dist/
 *.exe
 
+# goreleaser snapshot output
+goreleaser-dist/
+
 # Database
 *.db
 *.db-shm

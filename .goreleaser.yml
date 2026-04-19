@@ -1,0 +1,117 @@
+# goreleaser.yml — https://goreleaser.com
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: dandori
+    main: .
+    binary: dandori
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  - id: dandori-server
+    main: ./cmd/server
+    binary: dandori-server
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+
+archives:
+  - id: dandori
+    ids: [dandori]
+    name_template: "dandori_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+  - id: dandori-server
+    ids: [dandori-server]
+    name_template: "dandori-server_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "^docs:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: phuc-nt
+    name: dandori-cli
+  draft: false
+  prerelease: auto
+  header: |
+    ## dandori-cli {{ .Tag }}
+
+    Install one of these ways:
+
+    **Go:**
+    ```bash
+    go install github.com/phuc-nt/dandori-cli@{{ .Tag }}
+    ```
+
+    **Homebrew:**
+    ```bash
+    brew install phuc-nt/dandori/dandori
+    ```
+
+    **Prebuilt binary:** download from the assets below.
+  footer: |
+    **Full changelog:** https://github.com/phuc-nt/dandori-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+brews:
+  - name: dandori
+    ids: [dandori]
+    repository:
+      owner: phuc-nt
+      name: homebrew-dandori
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/phuc-nt/dandori-cli"
+    description: "Lightweight CLI outer harness for managing AI agent dev teams."
+    license: "MIT"
+    directory: Formula
+    install: |
+      bin.install "dandori"
+    test: |
+      system "#{bin}/dandori", "version"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com

@@ -24,12 +24,30 @@ See [Outer Harness](https://phuc-nt.github.io/dandori-pitch/outer-harness.html) 
 - **Agent assignment** — scoring algorithm (capability 40% + type 30% + history 20% + load 10%)
 - **Analytics CLI** — agent stats, cost breakdown, sprint summary
 
+## Install
+
+Choose one:
+
+**Go (needs Go 1.21+ in PATH):**
+```bash
+go install github.com/phuc-nt/dandori-cli@latest
+```
+
+**Homebrew (macOS / Linux):**
+```bash
+brew install phuc-nt/dandori/dandori
+```
+
+**Prebuilt binary (no dependencies):**
+```bash
+# Replace with your platform: darwin_amd64, darwin_arm64, linux_amd64, linux_arm64, windows_amd64
+curl -L https://github.com/phuc-nt/dandori-cli/releases/latest/download/dandori_darwin_arm64.tar.gz | tar xz
+sudo mv dandori /usr/local/bin/
+```
+
 ## Quick Start
 
 ```bash
-# Install
-go install github.com/phuc-nt/dandori-cli@latest
-
 # Setup (installs shell aliases to ~/.zshrc or ~/.bashrc)
 dandori init
 source ~/.zshrc
