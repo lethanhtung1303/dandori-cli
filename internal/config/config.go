@@ -10,13 +10,21 @@ import (
 )
 
 type Config struct {
-	ServerURL string           `yaml:"server_url"`
-	APIKey    string           `yaml:"api_key"`
-	Jira      JiraConfig       `yaml:"jira"`
+	ServerURL  string           `yaml:"server_url"`
+	APIKey     string           `yaml:"api_key"`
+	Jira       JiraConfig       `yaml:"jira"`
 	Confluence ConfluenceConfig `yaml:"confluence"`
-	Agent     AgentConfig      `yaml:"agent"`
-	Project   ProjectConfig    `yaml:"project"`
-	Sync      SyncConfig       `yaml:"sync"`
+	Agent      AgentConfig      `yaml:"agent"`
+	Project    ProjectConfig    `yaml:"project"`
+	Sync       SyncConfig       `yaml:"sync"`
+	Quality    QualityConfig    `yaml:"quality"`
+}
+
+type QualityConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	LintCommand string `yaml:"lint_command"`
+	TestCommand string `yaml:"test_command"`
+	Timeout     string `yaml:"timeout"`
 }
 
 type JiraConfig struct {
@@ -67,6 +75,12 @@ func DefaultConfig() *Config {
 		Sync: SyncConfig{
 			IntervalSec: 300,
 			BatchSize:   100,
+		},
+		Quality: QualityConfig{
+			Enabled:     true,
+			LintCommand: "golangci-lint run --json --out-format json 2>/dev/null || true",
+			TestCommand: "go test -json -count=1 ./... 2>&1 || true",
+			Timeout:     "30s",
 		},
 	}
 }

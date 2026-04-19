@@ -680,6 +680,65 @@ test_group_o() {
     fi
 }
 
+# Group P: Quality Metrics
+test_group_p() {
+    log_section "Group P: Quality Metrics"
+
+    # P1: Quality analytics command works
+    log_test "P1" "Quality analytics command"
+    local out=$("$DANDORI" analytics quality 2>&1)
+    if echo "$out" | grep -qE "(Agent Quality|No quality data)"; then
+        pass "P1" "Quality command works"
+    else
+        fail "P1" "Quality command failed: $out"
+    fi
+
+    # P2: Quality metrics captured after run
+    log_test "P2" "Quality metrics captured"
+    # Run a simple command and check if quality metrics are stored
+    "$DANDORI" run -- echo "test quality capture" > /dev/null 2>&1
+    local run_id=$(sqlite3 "$DB" "SELECT id FROM runs ORDER BY created_at DESC LIMIT 1")
+    if [ -n "$run_id" ]; then
+        local has_quality=$(sqlite3 "$DB" "SELECT COUNT(*) FROM quality_metrics WHERE run_id='$run_id'")
+        if [ "$has_quality" -gt 0 ]; then
+            pass "P2" "Quality metrics stored"
+        else
+            fail "P2" "No quality metrics for run $run_id"
+        fi
+    else
+        fail "P2" "No run created"
+    fi
+
+    # P3: Quality delta calculation
+    log_test "P3" "Quality delta calculation"
+    local tests_delta=$(sqlite3 "$DB" "SELECT tests_delta FROM quality_metrics ORDER BY created_at DESC LIMIT 1")
+    if [ -n "$tests_delta" ]; then
+        pass "P3" "Tests delta: $tests_delta"
+    else
+        fail "P3" "No tests delta"
+    fi
+
+    # P4: Quality comparison between agents
+    log_test "P4" "Quality comparison"
+    local out=$("$DANDORI" analytics quality --format json 2>&1)
+    if echo "$out" | grep -q "AgentName"; then
+        pass "P4" "Quality JSON format works"
+    elif echo "$out" | grep -q "No quality data"; then
+        pass "P4" "Quality JSON format works (no data)"
+    else
+        fail "P4" "Quality JSON failed: $out"
+    fi
+
+    # P5: Schema migration (quality_metrics table exists)
+    log_test "P5" "Schema migration"
+    local table_exists=$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='quality_metrics'")
+    if [ "$table_exists" = "quality_metrics" ]; then
+        pass "P5" "quality_metrics table exists"
+    else
+        fail "P5" "quality_metrics table missing"
+    fi
+}
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -706,6 +765,7 @@ main() {
     test_group_m
     test_group_n
     test_group_o
+    test_group_p
 
     # Summary
     log_section "SUMMARY"

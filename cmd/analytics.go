@@ -53,6 +53,22 @@ var analyticsRunsCmd = &cobra.Command{
 	RunE:  runAnalyticsRuns,
 }
 
+var analyticsQualityCmd = &cobra.Command{
+	Use:   "quality",
+	Short: "Code quality metrics by agent",
+	Long: `Compare agent code quality based on lint/test deltas.
+
+Quality metrics tracked per run:
+  - Lint delta: change in lint errors (negative = improvement)
+  - Tests delta: change in passing tests (positive = improvement)
+  - Improved %: percentage of runs that improved quality
+
+Examples:
+  dandori analytics quality
+  dandori analytics quality --compare alpha,beta`,
+	RunE: runAnalyticsQuality,
+}
+
 var (
 	analyticsGroupBy string
 	analyticsCompare string
@@ -66,6 +82,7 @@ func init() {
 	analyticsCmd.AddCommand(analyticsAgentsCmd)
 	analyticsCmd.AddCommand(analyticsSprintCmd)
 	analyticsCmd.AddCommand(analyticsRunsCmd)
+	analyticsCmd.AddCommand(analyticsQualityCmd)
 
 	analyticsCostCmd.Flags().StringVar(&analyticsGroupBy, "group-by", "agent", "Group by: agent, task, day, sprint")
 	analyticsCostCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
@@ -75,6 +92,9 @@ func init() {
 
 	analyticsRunsCmd.Flags().IntVar(&analyticsLimit, "limit", 20, "Number of runs to show")
 	analyticsRunsCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
+
+	analyticsQualityCmd.Flags().StringVar(&analyticsCompare, "compare", "", "Compare specific agents (comma-separated)")
+	analyticsQualityCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
 
 	analyticsCmd.PersistentFlags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
 }
@@ -272,6 +292,69 @@ func runAnalyticsRuns(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%.0fs\t$%.2f\n",
 			id, task, r.AgentName, r.Status, r.Duration, r.Cost)
+	}
+	return w.Flush()
+}
+
+func runAnalyticsQuality(cmd *cobra.Command, args []string) error {
+	store, err := getLocalDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	stats, err := store.GetQualityStatsByAgent()
+	if err != nil {
+		return fmt.Errorf("get quality stats: %w", err)
+	}
+
+	// Filter if --compare specified
+	if analyticsCompare != "" {
+		agents := strings.Split(analyticsCompare, ",")
+		agentSet := make(map[string]bool)
+		for _, a := range agents {
+			agentSet[strings.TrimSpace(a)] = true
+		}
+		var filtered []db.QualityStats
+		for _, s := range stats {
+			if agentSet[s.AgentName] {
+				filtered = append(filtered, s)
+			}
+		}
+		stats = filtered
+	}
+
+	if len(stats) == 0 {
+		fmt.Println("No quality data yet. Run agents with quality tracking enabled.")
+		return nil
+	}
+
+	if analyticsFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(stats)
+	}
+
+	fmt.Println("=== Agent Quality Comparison ===")
+	fmt.Println("Lint Delta: negative = fewer errors (good)")
+	fmt.Println("Tests Delta: positive = more passing (good)")
+	fmt.Println()
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "AGENT\tRUNS\tAVG LINT Δ\tAVG TESTS Δ\tIMPROVED")
+	fmt.Fprintln(w, "-----\t----\t----------\t-----------\t--------")
+	for _, s := range stats {
+		lintSign := ""
+		if s.AvgLintDelta > 0 {
+			lintSign = "+"
+		}
+		testsSign := ""
+		if s.AvgTestsDelta > 0 {
+			testsSign = "+"
+		}
+		fmt.Fprintf(w, "%s\t%d\t%s%.1f\t%s%.1f\t%.0f%%\n",
+			s.AgentName, s.RunCount,
+			lintSign, s.AvgLintDelta,
+			testsSign, s.AvgTestsDelta,
+			s.ImprovedPercent)
 	}
 	return w.Flush()
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/phuc-nt/dandori-cli/internal/config"
 	"github.com/phuc-nt/dandori-cli/internal/db"
 	"github.com/phuc-nt/dandori-cli/internal/jira"
+	"github.com/phuc-nt/dandori-cli/internal/quality"
 	"github.com/phuc-nt/dandori-cli/internal/taskcontext"
 	"github.com/phuc-nt/dandori-cli/internal/wrapper"
 	"github.com/spf13/cobra"
@@ -209,12 +210,24 @@ func runTaskRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("migrate database: %w", err)
 	}
 
+	// Get quality config
+	qualityCfg := quality.DefaultConfig()
+	if cfg.Quality.LintCommand != "" {
+		qualityCfg = quality.Config{
+			Enabled:     cfg.Quality.Enabled,
+			LintCommand: cfg.Quality.LintCommand,
+			TestCommand: cfg.Quality.TestCommand,
+			Timeout:     cfg.Quality.Timeout,
+		}
+	}
+
 	// Run with wrapper
 	opts := wrapper.Options{
-		Command:      finalCmd,
-		JiraIssueKey: issueKey,
-		AgentName:    agentName,
-		AgentType:    cfg.Agent.Type,
+		Command:       finalCmd,
+		JiraIssueKey:  issueKey,
+		AgentName:     agentName,
+		AgentType:     cfg.Agent.Type,
+		QualityConfig: qualityCfg,
 	}
 
 	result, err := wrapper.Run(ctx, localDB, opts)

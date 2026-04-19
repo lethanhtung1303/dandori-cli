@@ -1,6 +1,6 @@
 package db
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const SchemaSQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -59,10 +59,54 @@ CREATE TABLE IF NOT EXISTS audit_log (
     ts TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS quality_metrics (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id),
+    lint_errors_before INTEGER DEFAULT 0,
+    lint_errors_after INTEGER DEFAULT 0,
+    lint_warnings_before INTEGER DEFAULT 0,
+    lint_warnings_after INTEGER DEFAULT 0,
+    tests_total_before INTEGER DEFAULT 0,
+    tests_passed_before INTEGER DEFAULT 0,
+    tests_failed_before INTEGER DEFAULT 0,
+    tests_total_after INTEGER DEFAULT 0,
+    tests_passed_after INTEGER DEFAULT 0,
+    tests_failed_after INTEGER DEFAULT 0,
+    lint_delta INTEGER DEFAULT 0,
+    tests_delta INTEGER DEFAULT 0,
+    quality_score REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_jira ON runs(jira_issue_key);
 CREATE INDEX IF NOT EXISTS idx_runs_synced ON runs(synced) WHERE synced = 0;
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_events_synced ON events(synced) WHERE synced = 0;
 CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_quality_run ON quality_metrics(run_id);
+`
+
+// Migration from v1 to v2: add quality_metrics table
+const MigrationV1ToV2 = `
+CREATE TABLE IF NOT EXISTS quality_metrics (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id),
+    lint_errors_before INTEGER DEFAULT 0,
+    lint_errors_after INTEGER DEFAULT 0,
+    lint_warnings_before INTEGER DEFAULT 0,
+    lint_warnings_after INTEGER DEFAULT 0,
+    tests_total_before INTEGER DEFAULT 0,
+    tests_passed_before INTEGER DEFAULT 0,
+    tests_failed_before INTEGER DEFAULT 0,
+    tests_total_after INTEGER DEFAULT 0,
+    tests_passed_after INTEGER DEFAULT 0,
+    tests_failed_after INTEGER DEFAULT 0,
+    lint_delta INTEGER DEFAULT 0,
+    tests_delta INTEGER DEFAULT 0,
+    quality_score REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_run ON quality_metrics(run_id);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (2);
 `

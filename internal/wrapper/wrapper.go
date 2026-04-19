@@ -15,17 +15,19 @@ import (
 
 	"github.com/phuc-nt/dandori-cli/internal/db"
 	"github.com/phuc-nt/dandori-cli/internal/model"
+	"github.com/phuc-nt/dandori-cli/internal/quality"
 	"github.com/phuc-nt/dandori-cli/internal/util"
 )
 
 type Options struct {
-	Command      []string
-	JiraIssueKey string
-	AutoTask     bool
-	NoTailer     bool
-	DryRun       bool
-	AgentName    string
-	AgentType    string
+	Command       []string
+	JiraIssueKey  string
+	AutoTask      bool
+	NoTailer      bool
+	DryRun        bool
+	AgentName     string
+	AgentType     string
+	QualityConfig quality.Config
 }
 
 type Result struct {
@@ -97,6 +99,16 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 	}
 	slog.Debug("run started", "run_id", runID, "command", opts.Command)
 
+	// Quality snapshot before (non-blocking)
+	var qualityBefore *quality.Snapshot
+	var qualityCollector *quality.Collector
+	if opts.QualityConfig.Enabled {
+		qualityCollector = quality.NewCollector(opts.QualityConfig)
+		slog.Debug("capturing quality snapshot before run")
+		qualityBefore = qualityCollector.SnapshotLintOnly(cwd) // Lint only for speed
+		slog.Debug("quality before", "lint_errors", qualityBefore.LintErrors, "lint_warnings", qualityBefore.LintWarnings)
+	}
+
 	sessionSnapshot := SnapshotSessionDir(cwd)
 
 	cmd := exec.CommandContext(ctx, opts.Command[0], opts.Command[1:]...)
@@ -163,6 +175,20 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 
 	if err := updateRunComplete(localDB, runID, endedAt, duration, exitCode, status, gitHeadAfter, sessionID, tokenUsage, costUSD); err != nil {
 		slog.Error("update run", "error", err)
+	}
+
+	// Quality snapshot after and store metrics
+	if qualityCollector != nil && qualityBefore != nil {
+		slog.Debug("capturing quality snapshot after run")
+		qualityAfter := qualityCollector.Snapshot(cwd) // Full snapshot (lint + tests)
+		slog.Debug("quality after", "lint_errors", qualityAfter.LintErrors, "tests_passed", qualityAfter.TestsPassed)
+
+		metrics := quality.ComputeMetrics(runID, qualityBefore, qualityAfter)
+		if err := localDB.InsertQualityMetrics(metrics); err != nil {
+			slog.Warn("failed to store quality metrics", "error", err)
+		} else {
+			slog.Debug("quality metrics stored", "lint_delta", metrics.LintDelta, "tests_delta", metrics.TestsDelta)
+		}
 	}
 
 	slog.Debug("run completed", "run_id", runID, "exit_code", exitCode, "duration", duration)

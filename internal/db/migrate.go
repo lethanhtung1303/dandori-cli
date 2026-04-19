@@ -14,12 +14,21 @@ func (l *LocalDB) Migrate() error {
 		return nil
 	}
 
+	// Fresh install: apply full schema
 	if currentVersion == 0 {
 		if _, err := l.Exec(SchemaSQL); err != nil {
 			return fmt.Errorf("apply schema: %w", err)
 		}
 		if err := l.setSchemaVersion(SchemaVersion); err != nil {
 			return fmt.Errorf("set schema version: %w", err)
+		}
+		return nil
+	}
+
+	// Incremental migrations
+	if currentVersion == 1 {
+		if _, err := l.Exec(MigrationV1ToV2); err != nil {
+			return fmt.Errorf("migrate v1 to v2: %w", err)
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/phuc-nt/dandori-cli/internal/config"
 	"github.com/phuc-nt/dandori-cli/internal/db"
+	"github.com/phuc-nt/dandori-cli/internal/quality"
 	"github.com/phuc-nt/dandori-cli/internal/wrapper"
 	"github.com/spf13/cobra"
 )
@@ -86,14 +87,26 @@ func runRun(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
+	// Get quality config
+	qualityCfg := quality.DefaultConfig()
+	if cfg != nil && cfg.Quality.LintCommand != "" {
+		qualityCfg = quality.Config{
+			Enabled:     cfg.Quality.Enabled,
+			LintCommand: cfg.Quality.LintCommand,
+			TestCommand: cfg.Quality.TestCommand,
+			Timeout:     cfg.Quality.Timeout,
+		}
+	}
+
 	opts := wrapper.Options{
-		Command:      args,
-		JiraIssueKey: taskFlag,
-		AutoTask:     autoTaskFlag,
-		NoTailer:     noTailerFlag,
-		DryRun:       dryRunFlag,
-		AgentName:    agentName,
-		AgentType:    agentType,
+		Command:       args,
+		JiraIssueKey:  taskFlag,
+		AutoTask:      autoTaskFlag,
+		NoTailer:      noTailerFlag,
+		DryRun:        dryRunFlag,
+		AgentName:     agentName,
+		AgentType:     agentType,
+		QualityConfig: qualityCfg,
 	}
 
 	result, err := wrapper.Run(ctx, localDB, opts)
