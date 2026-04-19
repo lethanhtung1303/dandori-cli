@@ -18,23 +18,30 @@ type Snapshot struct {
 type Metrics struct {
 	RunID string
 
-	// Before
+	// Before (Phase 01)
 	LintErrorsBefore   int
 	LintWarningsBefore int
 	TestsTotalBefore   int
 	TestsPassedBefore  int
 	TestsFailedBefore  int
 
-	// After
+	// After (Phase 01)
 	LintErrorsAfter   int
 	LintWarningsAfter int
 	TestsTotalAfter   int
 	TestsPassedAfter  int
 	TestsFailedAfter  int
 
-	// Computed deltas
+	// Computed deltas (Phase 01)
 	LintDelta  int // Negative = improvement (fewer errors)
 	TestsDelta int // Positive = improvement (more passing)
+
+	// Git metrics (Phase 02)
+	LinesAdded       int
+	LinesRemoved     int
+	FilesChanged     int
+	CommitCount      int
+	CommitMsgQuality float64 // 0-1 score
 
 	CreatedAt time.Time
 }

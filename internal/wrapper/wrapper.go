@@ -184,6 +184,20 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 		slog.Debug("quality after", "lint_errors", qualityAfter.LintErrors, "tests_passed", qualityAfter.TestsPassed)
 
 		metrics := quality.ComputeMetrics(runID, qualityBefore, qualityAfter)
+
+		// Add git metrics (Phase 02)
+		if gitHeadBefore != "" && gitHeadAfter != "" && gitHeadBefore != gitHeadAfter {
+			analyzer := quality.NewGitAnalyzer(cwd)
+			if stats, err := analyzer.DiffStats(gitHeadBefore, gitHeadAfter); err == nil {
+				metrics.LinesAdded = stats.LinesAdded
+				metrics.LinesRemoved = stats.LinesRemoved
+				metrics.FilesChanged = stats.FilesChanged
+				metrics.CommitCount = stats.CommitCount
+				metrics.CommitMsgQuality = quality.ScoreCommitMessages(stats.CommitMsgs)
+				slog.Debug("git metrics", "lines_added", stats.LinesAdded, "commits", stats.CommitCount, "msg_quality", metrics.CommitMsgQuality)
+			}
+		}
+
 		if err := localDB.InsertQualityMetrics(metrics); err != nil {
 			slog.Warn("failed to store quality metrics", "error", err)
 		} else {

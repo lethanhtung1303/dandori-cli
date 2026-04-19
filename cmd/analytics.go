@@ -334,13 +334,12 @@ func runAnalyticsQuality(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("=== Agent Quality Comparison ===")
-	fmt.Println("Lint Delta: negative = fewer errors (good)")
-	fmt.Println("Tests Delta: positive = more passing (good)")
+	fmt.Println("Lint Δ: negative = fewer errors | Tests Δ: positive = more passing")
 	fmt.Println()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "AGENT\tRUNS\tAVG LINT Δ\tAVG TESTS Δ\tIMPROVED")
-	fmt.Fprintln(w, "-----\t----\t----------\t-----------\t--------")
+	fmt.Fprintln(w, "AGENT\tRUNS\tLINT Δ\tTESTS Δ\tLINES\tCOMMITS\tMSG QUAL\tIMPROVED")
+	fmt.Fprintln(w, "-----\t----\t------\t-------\t-----\t-------\t--------\t--------")
 	for _, s := range stats {
 		lintSign := ""
 		if s.AvgLintDelta > 0 {
@@ -350,10 +349,13 @@ func runAnalyticsQuality(cmd *cobra.Command, args []string) error {
 		if s.AvgTestsDelta > 0 {
 			testsSign = "+"
 		}
-		fmt.Fprintf(w, "%s\t%d\t%s%.1f\t%s%.1f\t%.0f%%\n",
+		fmt.Fprintf(w, "%s\t%d\t%s%.1f\t%s%.1f\t%.0f\t%d\t%.0f%%\t%.0f%%\n",
 			s.AgentName, s.RunCount,
 			lintSign, s.AvgLintDelta,
 			testsSign, s.AvgTestsDelta,
+			s.AvgLinesChanged,
+			s.TotalCommits,
+			s.AvgCommitQuality*100,
 			s.ImprovedPercent)
 	}
 	return w.Flush()

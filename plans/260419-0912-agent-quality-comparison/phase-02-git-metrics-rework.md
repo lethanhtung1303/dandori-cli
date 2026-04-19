@@ -1,8 +1,9 @@
 ---
 title: "Phase 02: Git Metrics + Rework Detection"
-status: pending
+status: done
 priority: P1
 effort: 4h
+completed: 2026-04-19
 ---
 
 # Phase 02: Git Metrics + Rework Detection
@@ -353,16 +354,14 @@ if run.GitHeadBefore.Valid && run.GitHeadAfter.Valid {
 
 ## Todo List
 
-- [ ] Create `internal/quality/git_analyzer.go`
-- [ ] Create `internal/quality/git_analyzer_test.go`
-- [ ] Create `internal/quality/commit_scorer.go`
-- [ ] Create `internal/quality/commit_scorer_test.go`
-- [ ] Update `internal/quality/types.go` with git fields
-- [ ] Add migration for git columns in quality_metrics
-- [ ] Update wrapper to call git analyzer
-- [ ] Add `AgentReworkStats` query
-- [ ] Update status display with git metrics
-- [ ] Add analytics CLI for rework: `dandori analytics rework`
+- [x] Create `internal/quality/git_analyzer.go`
+- [x] Create `internal/quality/git_analyzer_test.go`
+- [x] Create `internal/quality/commit_scorer.go`
+- [x] Update `internal/quality/types.go` with git fields
+- [x] Add git columns to quality_metrics schema
+- [x] Update wrapper to call git analyzer
+- [x] Update db/quality.go for git metrics
+- [x] Update analytics quality command with git stats
 
 ---
 

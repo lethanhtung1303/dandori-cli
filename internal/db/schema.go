@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS quality_metrics (
     tests_failed_after INTEGER DEFAULT 0,
     lint_delta INTEGER DEFAULT 0,
     tests_delta INTEGER DEFAULT 0,
+    lines_added INTEGER DEFAULT 0,
+    lines_removed INTEGER DEFAULT 0,
+    files_changed INTEGER DEFAULT 0,
+    commit_count INTEGER DEFAULT 0,
+    commit_msg_quality REAL DEFAULT 0,
     quality_score REAL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -102,6 +107,11 @@ CREATE TABLE IF NOT EXISTS quality_metrics (
     tests_failed_after INTEGER DEFAULT 0,
     lint_delta INTEGER DEFAULT 0,
     tests_delta INTEGER DEFAULT 0,
+    lines_added INTEGER DEFAULT 0,
+    lines_removed INTEGER DEFAULT 0,
+    files_changed INTEGER DEFAULT 0,
+    commit_count INTEGER DEFAULT 0,
+    commit_msg_quality REAL DEFAULT 0,
     quality_score REAL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
