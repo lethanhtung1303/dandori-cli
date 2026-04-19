@@ -135,12 +135,12 @@ CREATE INDEX idx_quality_run ON quality_metrics(run_id);
 
 ## Phases
 
-| Phase | Name | Effort | Depends | Priority |
-|-------|------|--------|---------|----------|
-| 01 | [Lint + Test Delta](phase-01-lint-test-delta.md) | 6h | — | P0 |
-| 02 | [Git Metrics + Rework](phase-02-git-metrics-rework.md) | 4h | 01 | P1 |
-| 03 | [Complexity Analysis](phase-03-complexity-analysis.md) | 3h | 01 | P2 |
-| 04 | [Quality Analytics](phase-04-quality-analytics.md) | 3h | 01-03 | P1 |
+| Phase | Name | Effort | Status | Priority |
+|-------|------|--------|--------|----------|
+| 01 | [Lint + Test Delta](phase-01-lint-test-delta.md) | 6h | ✅ Done | P0 |
+| 02 | [Git Metrics + Rework](phase-02-git-metrics-rework.md) | 4h | ✅ Done | P1 |
+| 03 | [Complexity Analysis](phase-03-complexity-analysis.md) | 3h | ⏸️ Deferred | P2 |
+| 04 | [Quality Analytics](phase-04-quality-analytics.md) | 3h | ✅ Done | P1 |
 
 ---
 

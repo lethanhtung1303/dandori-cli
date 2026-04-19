@@ -82,6 +82,51 @@ func (m *Metrics) IsImproved() bool {
 	return m.LintDelta < 0 || m.TestsDelta > 0
 }
 
+// CompositeScore calculates weighted quality score (0-100)
+// Weights: lint 25%, tests 30%, git hygiene 15%, rework penalty 30%
+func (m *Metrics) CompositeScore() float64 {
+	var score float64
+
+	// Lint improvement (25%): fewer errors = better
+	if m.LintErrorsBefore > 0 {
+		lintImprovement := float64(-m.LintDelta) / float64(m.LintErrorsBefore)
+		if lintImprovement > 1 {
+			lintImprovement = 1
+		}
+		if lintImprovement < -1 {
+			lintImprovement = -1
+		}
+		score += (lintImprovement + 1) / 2 * 25 // Normalize to 0-25
+	} else if m.LintErrorsAfter == 0 {
+		score += 25 // No lint errors = perfect
+	}
+
+	// Test improvement (30%): more passing = better
+	if m.TestsTotalAfter > 0 {
+		passRate := float64(m.TestsPassedAfter) / float64(m.TestsTotalAfter) * 30
+		score += passRate
+	}
+
+	// Commit quality (15%): conventional commits
+	score += m.CommitMsgQuality * 15
+
+	// Code churn penalty avoided (30%): reasonable changes
+	// More than 500 lines changed starts reducing score
+	if m.LinesAdded+m.LinesRemoved > 0 {
+		churn := float64(m.LinesAdded + m.LinesRemoved)
+		if churn <= 100 {
+			score += 30 // Small focused changes = good
+		} else if churn <= 500 {
+			score += 30 * (1 - (churn-100)/400) // Linear decay
+		}
+		// Massive changes (>500 lines) get 0 for this component
+	} else {
+		score += 15 // No changes = neutral
+	}
+
+	return score
+}
+
 // Summary returns a human-readable summary
 func (m *Metrics) Summary() string {
 	if m.LintErrorsBefore == 0 && m.LintErrorsAfter == 0 &&
