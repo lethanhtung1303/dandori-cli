@@ -167,6 +167,12 @@ var defaultPrices = map[string]ModelPrices{
 		CacheWrite: 18.75,
 		CacheRead:  1.50,
 	},
+	"claude-opus-4-7": {
+		Input:      15.00,
+		Output:     75.00,
+		CacheWrite: 18.75,
+		CacheRead:  1.50,
+	},
 	"claude-opus-4-5-20251101": {
 		Input:      15.00,
 		Output:     75.00,

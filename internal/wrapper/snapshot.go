@@ -87,7 +87,13 @@ func getClaudeProjectDir(cwd string) string {
 		return ""
 	}
 
-	dirName := strings.ReplaceAll(cwd, "/", "-")
+	// Resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+	realCwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		realCwd = cwd
+	}
+
+	dirName := strings.ReplaceAll(realCwd, "/", "-")
 	projectDir := filepath.Join(home, ".claude", "projects", dirName)
 
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
