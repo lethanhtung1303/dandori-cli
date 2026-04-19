@@ -128,11 +128,29 @@ confluence:
 | Runs/Events | `~/.dandori/local.db` |
 | Page cache | `~/.dandori/cache/` |
 
+### Context Injection Not Working
+
+**Symptom:** Agent runs but doesn't seem to have Jira/Confluence context.
+
+**Fix:**
+1. Check Confluence links in Jira description use full URLs
+2. Verify `--dry-run` shows expected context: `dandori task run PROJ-1 --dry-run`
+3. Ensure Confluence pages are accessible with current credentials
+
+### No Git Changes Reported
+
+**Symptom:** Jira completion comment shows "No code changes in this run"
+
+**Cause:** Agent didn't create any commits, or working directory isn't a git repo.
+
+**Fix:** Ensure agent commits changes during the run. Git HEAD is compared before/after.
+
 ## Command Reference
 
 | Command | Purpose |
 |---------|---------|
 | `dandori init` | Create config + database + shell aliases |
+| `dandori task run KEY` | **Recommended**: Run agent with full Jira+Confluence context |
 | `dandori run` | Execute agent with tracking (explicit) |
 | `dandori watch` | Background capture of orphan runs |
 | `dandori task start/done/info` | Manage Jira task lifecycle |
