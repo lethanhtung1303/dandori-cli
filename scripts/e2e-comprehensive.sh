@@ -584,6 +584,103 @@ test_group_m() {
 }
 
 # ============================================================================
+# Group N: Enhanced Completion Comment
+# ============================================================================
+
+test_group_n() {
+    log_section "Group N: Enhanced Completion Comment"
+
+    # Create task with AC for testing
+    local task=$(create_jira_task "E2E test AC extraction" "Test for AC.\n\n**Acceptance Criteria:**\n- [ ] First criterion\n- [ ] Second criterion\n- [ ] Third criterion")
+    if [ -z "$task" ]; then
+        fail "N1" "Failed to create task"
+        return
+    fi
+    TASKS+=("$task")
+
+    log_test "N1" "task run with AC extracts criteria"
+    "$DANDORI" task run "$task" -- claude -p "Just say OK" --allowedTools "" > /tmp/n1-out.log 2>&1
+    local rc=$?
+    [ $rc -eq 0 ] && pass "N1" "Run completed" || fail "N1" "Run failed rc=$rc"
+
+    log_test "N2" "Jira comment contains AC section"
+    sleep 2
+    local comment=$(jira_api GET "/rest/api/2/issue/$task/comment" | jq -r '.comments[-1].body // empty')
+    echo "$comment" | grep -q "Acceptance Criteria" && pass "N2" "AC section present" || fail "N2" "No AC section"
+
+    log_test "N3" "AC items extracted"
+    echo "$comment" | grep -q "First criterion" && pass "N3" "AC items found" || fail "N3" "No AC items"
+
+    log_test "N4" "Comment has run statistics"
+    echo "$comment" | grep -q "Run Statistics" && pass "N4" "Stats present" || fail "N4" "No stats"
+
+    log_test "N5" "Comment has cost info"
+    echo "$comment" | grep -q "Cost" && pass "N5" "Cost in comment" || fail "N5" "No cost"
+
+    log_test "N6" "Comment has model info"
+    echo "$comment" | grep -q "Model" && pass "N6" "Model in comment" || fail "N6" "No model"
+
+    log_test "N7" "Comment has git info"
+    echo "$comment" | grep -q "Git" && pass "N7" "Git in comment" || fail "N7" "No git"
+
+    log_test "N8" "Comment has output location"
+    echo "$comment" | grep -q "Output Location" && pass "N8" "Output section" || fail "N8" "No output section"
+}
+
+# ============================================================================
+# Group O: Diverse Task Types
+# ============================================================================
+
+test_group_o() {
+    log_section "Group O: Diverse Task Types"
+
+    # Test with multiple Confluence links
+    log_test "O1" "Task with multiple Confluence links"
+    local multi_task=$(create_jira_task "E2E multi-link test" "Links: https://fooknt.atlassian.net/wiki/pages/360651 and https://fooknt.atlassian.net/wiki/pages/164547")
+    if [ -n "$multi_task" ]; then
+        TASKS+=("$multi_task")
+        local out=$("$DANDORI" task run "$multi_task" --dry-run 2>&1)
+        local count=$(echo "$out" | grep -c "Linked docs:")
+        echo "$out" | grep -q "Linked docs: 2" && pass "O1" "2 docs found" || fail "O1" "Wrong count"
+    else
+        fail "O1" "Create task failed"
+    fi
+
+    # Test bug with steps to reproduce
+    log_test "O2" "Bug task with steps"
+    local bug_task=$(create_jira_task "E2E bug test" "Steps:\n1. Open app\n2. Click button\n3. See error\n\n**Expected:** Works\n**Actual:** Fails")
+    if [ -n "$bug_task" ]; then
+        TASKS+=("$bug_task")
+        local out=$("$DANDORI" task run "$bug_task" --dry-run 2>&1)
+        echo "$out" | grep -q "Steps:" && pass "O2" "Steps in context" || fail "O2" "No steps"
+    else
+        fail "O2" "Create task failed"
+    fi
+
+    # Test simple task
+    log_test "O3" "Simple minimal task"
+    local simple_task=$(create_jira_task "E2E simple test" "Just do it.")
+    if [ -n "$simple_task" ]; then
+        TASKS+=("$simple_task")
+        local out=$("$DANDORI" task run "$simple_task" --dry-run 2>&1)
+        echo "$out" | grep -q "Just do it" && pass "O3" "Simple desc" || fail "O3" "No desc"
+    else
+        fail "O3" "Create task failed"
+    fi
+
+    # Test task with code blocks
+    log_test "O4" "Task with code blocks"
+    local code_task=$(create_jira_task "E2E code test" "Change:\n\`\`\`go\nfmt.Println()\n\`\`\`")
+    if [ -n "$code_task" ]; then
+        TASKS+=("$code_task")
+        local out=$("$DANDORI" task run "$code_task" --dry-run 2>&1)
+        echo "$out" | grep -q "Println" && pass "O4" "Code in context" || fail "O4" "No code"
+    else
+        fail "O4" "Create task failed"
+    fi
+}
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -607,6 +704,8 @@ main() {
     test_group_k
     test_group_l
     test_group_m
+    test_group_n
+    test_group_o
 
     # Summary
     log_section "SUMMARY"
