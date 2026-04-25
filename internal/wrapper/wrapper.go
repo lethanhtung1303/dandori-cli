@@ -20,14 +20,15 @@ import (
 )
 
 type Options struct {
-	Command       []string
-	JiraIssueKey  string
-	AutoTask      bool
-	NoTailer      bool
-	DryRun        bool
-	AgentName     string
-	AgentType     string
-	QualityConfig quality.Config
+	Command         []string
+	JiraIssueKey    string
+	AutoTask        bool
+	NoTailer        bool
+	DryRun          bool
+	AgentName       string
+	AgentType       string
+	QualityConfig   quality.Config
+	PostExitTimeout time.Duration // 0 = --no-wait, <0 = use DefaultPostExitTimeout
 }
 
 type Result struct {
@@ -136,8 +137,12 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 	usageChan := make(chan TokenUsage, 1)
 
 	if !opts.NoTailer {
+		timeout := opts.PostExitTimeout
+		if timeout < 0 {
+			timeout = DefaultPostExitTimeout
+		}
 		go func() {
-			usage := TailSessionLog(tailerCtx, cwd, sessionSnapshot)
+			usage := TailSessionLogWithTimeout(tailerCtx, cwd, sessionSnapshot, timeout)
 			usageChan <- usage
 		}()
 	} else {

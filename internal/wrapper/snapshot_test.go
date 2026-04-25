@@ -3,6 +3,7 @@ package wrapper
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -109,6 +110,34 @@ func TestGetSessionLogPath(t *testing.T) {
 	path := GetSessionLogPath(tmpDir, snapshot)
 	if path != sessionFile {
 		t.Errorf("path = %s, want %s", path, sessionFile)
+	}
+}
+
+func TestSnapshotSessionDir_CreatesDirPathEvenIfMissing(t *testing.T) {
+	// Regression: when Claude hasn't run in the cwd yet, the project dir
+	// doesn't exist. Snapshot must still return the expected path so the
+	// tailer can poll for it to appear.
+	tmpDir := t.TempDir()
+	freshCwd := filepath.Join(tmpDir, "brand-new-workspace-"+time.Now().Format("150405"))
+	if err := os.MkdirAll(freshCwd, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := SnapshotSessionDir(freshCwd)
+
+	if snapshot == nil {
+		t.Fatal("snapshot nil")
+	}
+	if snapshot.Dir == "" {
+		t.Error("Dir should be set to expected path even when claude project dir doesn't exist yet")
+	}
+	home, _ := os.UserHomeDir()
+	realCwd, _ := filepath.EvalSymlinks(freshCwd)
+	expectedDir := filepath.Join(home, ".claude", "projects",
+		"-"+filepath.Base(filepath.Dir(realCwd))+"-"+filepath.Base(realCwd))
+	// Just check the path is under ~/.claude/projects — exact encoding already tested elsewhere.
+	if !strings.HasPrefix(snapshot.Dir, filepath.Join(home, ".claude", "projects")) {
+		t.Errorf("Dir = %s, want under ~/.claude/projects (expected approx %s)", snapshot.Dir, expectedDir)
 	}
 }
 

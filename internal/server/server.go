@@ -35,6 +35,7 @@ func New(db *serverdb.DB, cfg Config) *Server {
 	s.router.Use(middleware.Timeout(60 * time.Second))
 
 	s.router.Get("/api/health", s.handleHealth)
+	s.router.Get("/hello", s.handleHello)
 	s.router.Post("/api/events", s.handleIngestEvents)
 	s.router.Get("/api/fleet/live", s.handleFleetLive)
 	s.router.Get("/api/runs", s.handleListRuns)
@@ -86,6 +87,11 @@ func (s *Server) StartSSEBroadcast(ctx context.Context, interval time.Duration) 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"message":"Hello, Dandori!"}`))
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {

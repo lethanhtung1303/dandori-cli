@@ -18,6 +18,11 @@ type Config struct {
 	Project    ProjectConfig    `yaml:"project"`
 	Sync       SyncConfig       `yaml:"sync"`
 	Quality    QualityConfig    `yaml:"quality"`
+	Wrapper    WrapperConfig    `yaml:"wrapper"`
+}
+
+type WrapperConfig struct {
+	PostExitTimeout string `yaml:"post_exit_timeout"`
 }
 
 type QualityConfig struct {
@@ -82,6 +87,9 @@ func DefaultConfig() *Config {
 			TestCommand: "go test -json -count=1 ./... 2>&1 || true",
 			Timeout:     "30s",
 		},
+		Wrapper: WrapperConfig{
+			PostExitTimeout: "10s",
+		},
 	}
 }
 
@@ -102,9 +110,21 @@ func ConfigPath() (string, error) {
 }
 
 func DBPath() (string, error) {
+	if env := os.Getenv("DANDORI_DB"); env != "" {
+		return env, nil
+	}
 	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
+	}
+	// Honor `~/.dandori/active_db` pointer file if present — used by
+	// `dandori demo --use` to swap in demo.db without editing config.
+	pointer := filepath.Join(dir, "active_db")
+	if data, err := os.ReadFile(pointer); err == nil {
+		p := strings.TrimSpace(string(data))
+		if p != "" {
+			return p, nil
+		}
 	}
 	return filepath.Join(dir, "local.db"), nil
 }

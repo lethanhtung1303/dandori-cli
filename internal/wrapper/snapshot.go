@@ -13,7 +13,7 @@ type SessionSnapshot struct {
 }
 
 func SnapshotSessionDir(cwd string) *SessionSnapshot {
-	claudeDir := getClaudeProjectDir(cwd)
+	claudeDir := expectedClaudeProjectDir(cwd)
 	if claudeDir == "" {
 		return &SessionSnapshot{Files: make(map[string]time.Time)}
 	}
@@ -25,6 +25,8 @@ func SnapshotSessionDir(cwd string) *SessionSnapshot {
 
 	entries, err := os.ReadDir(claudeDir)
 	if err != nil {
+		// Dir doesn't exist yet — Claude will create it on first run.
+		// Keep Dir set so the tailer can poll for it to appear.
 		return snapshot
 	}
 
@@ -81,26 +83,35 @@ func DetectSessionID(cwd string, before *SessionSnapshot) string {
 	return strings.TrimSuffix(newestFile, ".jsonl")
 }
 
+// getClaudeProjectDir returns the project dir only if it already exists.
+// Retained for callers that want existence-checked behaviour.
 func getClaudeProjectDir(cwd string) string {
+	projectDir := expectedClaudeProjectDir(cwd)
+	if projectDir == "" {
+		return ""
+	}
+	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
+		return ""
+	}
+	return projectDir
+}
+
+// expectedClaudeProjectDir computes the ~/.claude/projects/<encoded-cwd> path
+// without requiring it to exist. Claude creates the dir lazily on first run,
+// so the snapshot needs the expected path so the tailer can poll for it.
+func expectedClaudeProjectDir(cwd string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
 
-	// Resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
 	realCwd, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		realCwd = cwd
 	}
 
 	dirName := strings.ReplaceAll(realCwd, "/", "-")
-	projectDir := filepath.Join(home, ".claude", "projects", dirName)
-
-	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
-		return ""
-	}
-
-	return projectDir
+	return filepath.Join(home, ".claude", "projects", dirName)
 }
 
 func GetSessionLogPath(cwd string, before *SessionSnapshot) string {

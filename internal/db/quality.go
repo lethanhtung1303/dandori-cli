@@ -86,7 +86,7 @@ type QualityStats struct {
 func (l *LocalDB) GetQualityStatsByAgent() ([]QualityStats, error) {
 	rows, err := l.Query(`
 		SELECT
-			r.agent_name,
+			COALESCE(r.agent_name, '(human)') as agent_name,
 			COUNT(*) as run_count,
 			AVG(q.lint_delta) as avg_lint_delta,
 			AVG(q.tests_delta) as avg_tests_delta,
@@ -96,7 +96,7 @@ func (l *LocalDB) GetQualityStatsByAgent() ([]QualityStats, error) {
 			SUM(COALESCE(q.commit_count, 0)) as total_commits
 		FROM quality_metrics q
 		JOIN runs r ON q.run_id = r.id
-		GROUP BY r.agent_name
+		GROUP BY COALESCE(r.agent_name, '(human)')
 		ORDER BY avg_tests_delta DESC, avg_lint_delta ASC
 	`)
 	if err != nil {

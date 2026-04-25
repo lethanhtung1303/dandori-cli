@@ -4,7 +4,7 @@ COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS=-ldflags "-X github.com/phuc-nt/dandori-cli/cmd.Version=$(VERSION) -X github.com/phuc-nt/dandori-cli/cmd.Commit=$(COMMIT) -X github.com/phuc-nt/dandori-cli/cmd.BuildDate=$(BUILD_DATE)"
 
-.PHONY: build test lint clean install deps
+.PHONY: build test lint clean install deps rehearsal rehearsal-live rehearsal-e2e
 
 build:
 	go build $(LDFLAGS) -o bin/$(BINARY_NAME) .
@@ -37,5 +37,14 @@ install: build
 
 run: build
 	./bin/$(BINARY_NAME)
+
+rehearsal: build
+	./scripts/hackday-rehearsal.sh dry
+
+rehearsal-live: build
+	./scripts/hackday-rehearsal.sh live
+
+rehearsal-e2e: build
+	go test -tags=e2e -run TestE2E_Rehearsal_DryRun ./internal/integration/...
 
 .DEFAULT_GOAL := build

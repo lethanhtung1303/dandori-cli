@@ -53,6 +53,17 @@ var analyticsRunsCmd = &cobra.Command{
 	RunE:  runAnalyticsRuns,
 }
 
+var analyticsMixCmd = &cobra.Command{
+	Use:   "mix",
+	Short: "Human + agent leaderboard (blog table)",
+	Long: `Show the mixed human+agent leaderboard.
+Each row is one (engineer, agent) pair. Pure human rows have empty agent.
+
+Example:
+  dandori analytics mix --since 30`,
+	RunE: runAnalyticsMix,
+}
+
 var analyticsQualityCmd = &cobra.Command{
 	Use:   "quality",
 	Short: "Code quality metrics by agent",
@@ -71,9 +82,11 @@ Examples:
 
 var (
 	analyticsGroupBy string
+	analyticsBy      string
 	analyticsCompare string
 	analyticsFormat  string
 	analyticsLimit   int
+	analyticsSince   int
 )
 
 func init() {
@@ -83,8 +96,13 @@ func init() {
 	analyticsCmd.AddCommand(analyticsSprintCmd)
 	analyticsCmd.AddCommand(analyticsRunsCmd)
 	analyticsCmd.AddCommand(analyticsQualityCmd)
+	analyticsCmd.AddCommand(analyticsMixCmd)
 
-	analyticsCostCmd.Flags().StringVar(&analyticsGroupBy, "group-by", "agent", "Group by: agent, task, day, sprint")
+	analyticsMixCmd.Flags().IntVar(&analyticsSince, "since", 30, "Window in days")
+	analyticsMixCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
+
+	analyticsCostCmd.Flags().StringVar(&analyticsGroupBy, "group-by", "agent", "Group by: agent, task, day, sprint, engineer, department")
+	analyticsCostCmd.Flags().StringVar(&analyticsBy, "by", "", "Alias for --group-by (e.g., --by engineer)")
 	analyticsCostCmd.Flags().StringVar(&analyticsFormat, "format", "table", "Output format: table, json")
 
 	analyticsAgentsCmd.Flags().StringVar(&analyticsCompare, "compare", "", "Compare specific agents (comma-separated)")
@@ -100,7 +118,15 @@ func init() {
 }
 
 func getLocalDB() (*db.LocalDB, error) {
-	return db.Open("")
+	d, err := db.Open("")
+	if err != nil {
+		return nil, err
+	}
+	if err := d.Migrate(); err != nil {
+		d.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return d, nil
 }
 
 func runAnalyticsOverview(cmd *cobra.Command, args []string) error {
@@ -142,16 +168,27 @@ func runAnalyticsCost(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
+	dim := analyticsGroupBy
+	if analyticsBy != "" {
+		dim = analyticsBy
+	}
+
 	var groups []db.LocalCostGroup
-	switch analyticsGroupBy {
+	switch dim {
 	case "task":
 		groups, err = store.GetCostByTask()
 	case "day":
 		groups, err = store.GetCostByDay()
 	case "sprint":
 		groups, err = store.GetCostBySprint()
-	default:
+	case "engineer":
+		groups, err = store.GetCostByEngineer()
+	case "department":
+		groups, err = store.GetCostByDepartment()
+	case "agent", "":
 		groups, err = store.GetCostByAgent()
+	default:
+		return fmt.Errorf("unknown dimension %q. valid: agent, task, day, sprint, engineer, department", dim)
 	}
 	if err != nil {
 		return fmt.Errorf("get cost: %w", err)
@@ -292,6 +329,40 @@ func runAnalyticsRuns(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%.0fs\t$%.2f\n",
 			id, task, r.AgentName, r.Status, r.Duration, r.Cost)
+	}
+	return w.Flush()
+}
+
+func runAnalyticsMix(cmd *cobra.Command, args []string) error {
+	store, err := getLocalDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	rows, err := store.GetMixLeaderboard(analyticsSince)
+	if err != nil {
+		return fmt.Errorf("mix: %w", err)
+	}
+	if len(rows) == 0 {
+		fmt.Println("No runs in window.")
+		return nil
+	}
+
+	if analyticsFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(rows)
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ENGINEER\tAGENT\tRUNS\tCOST\tAVG COST\tAVG DUR")
+	fmt.Fprintln(w, "--------\t-----\t----\t----\t--------\t-------")
+	for _, r := range rows {
+		agent := r.Agent
+		if agent == "" {
+			agent = "(human)"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t$%.2f\t$%.2f\t%.0fs\n",
+			r.Engineer, agent, r.RunCount, r.TotalCost, r.AvgCost, r.AvgDuration)
 	}
 	return w.Flush()
 }

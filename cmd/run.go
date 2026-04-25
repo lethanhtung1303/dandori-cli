@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/phuc-nt/dandori-cli/internal/config"
 	"github.com/phuc-nt/dandori-cli/internal/db"
@@ -35,6 +36,7 @@ var (
 	autoTaskFlag bool
 	noTailerFlag bool
 	dryRunFlag   bool
+	noWaitFlag   bool
 )
 
 func init() {
@@ -42,6 +44,7 @@ func init() {
 	runCmd.Flags().BoolVar(&autoTaskFlag, "auto-task", false, "Auto-detect Jira key from git branch")
 	runCmd.Flags().BoolVar(&noTailerFlag, "no-tailer", false, "Disable session log parsing (Layer 2)")
 	runCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "Print what would happen without executing")
+	runCmd.Flags().BoolVar(&noWaitFlag, "no-wait", false, "Skip post-exit wait for session log (CI/scripts)")
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -98,15 +101,26 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	postExitTimeout := wrapper.DefaultPostExitTimeout
+	if cfg != nil && cfg.Wrapper.PostExitTimeout != "" {
+		if d, err := time.ParseDuration(cfg.Wrapper.PostExitTimeout); err == nil {
+			postExitTimeout = d
+		}
+	}
+	if noWaitFlag {
+		postExitTimeout = 0
+	}
+
 	opts := wrapper.Options{
-		Command:       args,
-		JiraIssueKey:  taskFlag,
-		AutoTask:      autoTaskFlag,
-		NoTailer:      noTailerFlag,
-		DryRun:        dryRunFlag,
-		AgentName:     agentName,
-		AgentType:     agentType,
-		QualityConfig: qualityCfg,
+		Command:         args,
+		JiraIssueKey:    taskFlag,
+		AutoTask:        autoTaskFlag,
+		NoTailer:        noTailerFlag,
+		DryRun:          dryRunFlag,
+		AgentName:       agentName,
+		AgentType:       agentType,
+		QualityConfig:   qualityCfg,
+		PostExitTimeout: postExitTimeout,
 	}
 
 	result, err := wrapper.Run(ctx, localDB, opts)

@@ -1,6 +1,6 @@
 package db
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const SchemaSQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
     jira_issue_key TEXT,
     jira_sprint_id TEXT,
-    agent_name TEXT NOT NULL,
+    agent_name TEXT,
     agent_type TEXT NOT NULL DEFAULT 'claude_code',
     user TEXT NOT NULL,
     workstation_id TEXT NOT NULL,
@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS runs (
     cache_write_tokens INTEGER DEFAULT 0,
     model TEXT,
     cost_usd REAL DEFAULT 0,
+    engineer_name TEXT,
+    department TEXT,
     synced INTEGER DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -85,6 +87,8 @@ CREATE TABLE IF NOT EXISTS quality_metrics (
 CREATE INDEX IF NOT EXISTS idx_runs_jira ON runs(jira_issue_key);
 CREATE INDEX IF NOT EXISTS idx_runs_synced ON runs(synced) WHERE synced = 0;
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_engineer ON runs(engineer_name);
+CREATE INDEX IF NOT EXISTS idx_runs_department ON runs(department);
 CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_events_synced ON events(synced) WHERE synced = 0;
 CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
@@ -119,4 +123,69 @@ CREATE TABLE IF NOT EXISTS quality_metrics (
 CREATE INDEX IF NOT EXISTS idx_quality_run ON quality_metrics(run_id);
 
 INSERT OR REPLACE INTO schema_version (version) VALUES (2);
+`
+
+// Migration v2→v3:
+//   * add engineer_name + department columns
+//   * relax runs.agent_name from NOT NULL → NULL (blog leaderboard needs
+//     human-only rows where agent_name IS NULL)
+//
+// SQLite cannot ALTER COLUMN, so we rebuild the table. All other columns
+// are preserved exactly.
+const MigrationV2ToV3 = `
+ALTER TABLE runs ADD COLUMN engineer_name TEXT;
+ALTER TABLE runs ADD COLUMN department TEXT;
+CREATE INDEX IF NOT EXISTS idx_runs_engineer ON runs(engineer_name);
+CREATE INDEX IF NOT EXISTS idx_runs_department ON runs(department);
+
+CREATE TABLE IF NOT EXISTS runs_v3 (
+    id TEXT PRIMARY KEY,
+    jira_issue_key TEXT,
+    jira_sprint_id TEXT,
+    agent_name TEXT,
+    agent_type TEXT NOT NULL DEFAULT 'claude_code',
+    user TEXT NOT NULL,
+    workstation_id TEXT NOT NULL,
+    cwd TEXT,
+    git_remote TEXT,
+    git_head_before TEXT,
+    git_head_after TEXT,
+    command TEXT,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    duration_sec REAL,
+    exit_code INTEGER,
+    status TEXT NOT NULL DEFAULT 'running',
+    session_id TEXT,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cache_read_tokens INTEGER DEFAULT 0,
+    cache_write_tokens INTEGER DEFAULT 0,
+    model TEXT,
+    cost_usd REAL DEFAULT 0,
+    engineer_name TEXT,
+    department TEXT,
+    synced INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO runs_v3 SELECT
+    id, jira_issue_key, jira_sprint_id, agent_name, agent_type, user,
+    workstation_id, cwd, git_remote, git_head_before, git_head_after,
+    command, started_at, ended_at, duration_sec, exit_code, status,
+    session_id, input_tokens, output_tokens, cache_read_tokens,
+    cache_write_tokens, model, cost_usd, engineer_name, department,
+    synced, created_at
+FROM runs;
+
+DROP TABLE runs;
+ALTER TABLE runs_v3 RENAME TO runs;
+
+CREATE INDEX IF NOT EXISTS idx_runs_jira ON runs(jira_issue_key);
+CREATE INDEX IF NOT EXISTS idx_runs_synced ON runs(synced) WHERE synced = 0;
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_engineer ON runs(engineer_name);
+CREATE INDEX IF NOT EXISTS idx_runs_department ON runs(department);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (3);
 `

@@ -1,0 +1,4 @@
+# Keep structure, ignore everything Claude writes during demo/test sessions.
+*
+!.gitignore
+!README.md
