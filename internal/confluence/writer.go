@@ -52,11 +52,13 @@ func (w *Writer) CreateReport(ctx context.Context, run RunReport) (*Page, error)
 }
 
 func GenerateReportTitle(run RunReport) string {
-	date := run.StartedAt.Format("2006-01-02")
-	if run.StartedAt.IsZero() {
-		date = time.Now().Format("2006-01-02")
+	// Include time-of-day so two runs on the same task same day don't collide
+	// (Confluence rejects duplicate titles within a space).
+	stamp := run.StartedAt
+	if stamp.IsZero() {
+		stamp = time.Now()
 	}
-	return fmt.Sprintf("%s — Run %s — %s", run.IssueKey, run.RunID[:min(8, len(run.RunID))], date)
+	return fmt.Sprintf("%s — Run %s — %s", run.IssueKey, run.RunID[:min(8, len(run.RunID))], stamp.Format("2006-01-02 15:04:05"))
 }
 
 const reportTemplate = `<h1>Agent Run Report: {{.IssueKey}}</h1>
