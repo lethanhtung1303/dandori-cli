@@ -2,7 +2,7 @@
 
 [![Go](https://img.shields.io/badge/go-1.21%2B-blue)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-308%20unit%20%2B%2057%20E2E-brightgreen)](docs/devlog/)
+[![Tests](https://img.shields.io/badge/tests-274%20unit%20%2B%205%20E2E-brightgreen)](docs/devlog/)
 
 Lightweight CLI outer harness for managing AI agent dev teams. Wraps agent execution, tracks runs, integrates with Jira/Confluence, and provides analytics for PO/PDM and QA.
 
