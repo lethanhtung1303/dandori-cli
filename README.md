@@ -78,10 +78,13 @@ See [User Guide](docs/user-guide.md) for step-by-step use cases.
 | `dandori jira-sync` | Transition Jira + add comments |
 | `dandori conf-write --task KEY` | Confluence report |
 | `dandori analytics {runs\|agents\|cost}` | Terminal analytics |
+| `dandori analytics all --since 30` | 4-block snapshot (cost · leaderboard · quality · alerts) |
+| `dandori analytics cost --by {engineer\|department}` | Group cost by engineer or department |
 | `dandori dashboard` | Web UI (localhost:8088) |
 | `dandori assign suggest/set` | Agent assignment |
 | `dandori status` | Recent runs summary |
 | `dandori sync` | Push to central server (optional) |
+| `dandori demo --reset --seed --use\|--restore` | Seed/teardown demo DB (blog scenario) |
 
 ## Architecture
 

@@ -23,7 +23,8 @@ Công ty 50 dev, hoá đơn AI $10K/tháng, không ai trả lời được tiề
 - **v0.3.0** đã publish · 8/8 phase done · **~88% vision**
 - 5 Pillars: Cost 100% · Task Tracking 100% · Audit 100% · Quality 75% · Knowledge Flow 55%
 - 5 business questions outer-harness đặt ra → 4/5 trả lời được bằng 1 command; câu cuối (knowledge retention) chỉ partial qua Confluence reports.
-- Known gaps (ưu tiên giảm dần): tailer timing · multi-agent · context inheritance · skill library · homebrew tap.
+- **Hackday prep (2026-04-25)**: tailer timing fix · `analytics all` 4-block snapshot · engineer/department group-by · demo seed · rehearsal script (xem [devlog 2026-04-25](devlog/2026-04-25-hackday-prep-and-snapshot-fix.md)).
+- Known gaps (ưu tiên giảm dần): multi-agent · context inheritance · skill library · homebrew tap.
 
 ---
 
@@ -37,6 +38,7 @@ Công ty 50 dev, hoá đơn AI $10K/tháng, không ai trả lời được tiề
 | Architecture đầy đủ + 8 phase chi tiết | [`../../plans/260418-1301-dandori-cli/plan.md`](../../plans/260418-1301-dandori-cli/plan.md) |
 | Lịch sử implement + quyết định | [`devlog/`](devlog/) |
 | Release quy trình | [`release-setup.md`](release-setup.md) |
+| Hackday demo flow (3 phút, 1 command/stage) | [`hackday-demo-script.md`](hackday-demo-script.md) |
 | AI đã build repo này thế nào | [`ck-tools-usage.md`](ck-tools-usage.md) |
 
 ## Source code điểm vào

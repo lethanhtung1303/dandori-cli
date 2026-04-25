@@ -166,9 +166,12 @@ launchctl submit -l com.phuc.dandori-watch -- /usr/local/bin/dandori watch
 
 ```bash
 # CLI tables
-dandori analytics runs          # recent runs
-dandori analytics agents        # stats per agent
-dandori analytics cost          # cost breakdown
+dandori analytics runs                       # recent runs
+dandori analytics agents                     # stats per agent
+dandori analytics cost                       # cost breakdown (per project)
+dandori analytics cost --by engineer         # group by engineer
+dandori analytics cost --by department       # group by department
+dandori analytics all --since 30             # 4-block snapshot: cost · leaderboard · quality · alerts
 
 # Web dashboard with charts
 dandori dashboard               # opens browser to http://localhost:8088
@@ -266,8 +269,11 @@ beta   8     +1.0    +5.0     820    8        60%       50%
 | `dandori watch [--once]` | Catch orphan runs |
 | `dandori jira-sync` | Push run status to Jira |
 | `dandori conf-write --task KEY` | Confluence report |
-| `dandori analytics {runs\|agents\|cost\|quality}` | Terminal analytics |
+| `dandori analytics {runs\|agents\|cost\|quality\|all}` | Terminal analytics |
+| `dandori analytics cost --by {engineer\|department}` | Group cost by engineer or department |
+| `dandori analytics all --since 30` | 4-block snapshot (cost · leaderboard · quality · alerts) |
 | `dandori dashboard` | Web UI |
+| `dandori demo --reset --seed --use\|--restore` | Demo DB sandbox (blog scenario) |
 | `dandori status` | Recent runs summary |
 | `dandori assign suggest/set` | Agent assignment |
 | `dandori sync` | Push events to server (optional) |

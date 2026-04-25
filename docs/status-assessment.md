@@ -1,6 +1,6 @@
 # dandori-cli Status Assessment
 
-> Last updated: 2026-04-20
+> Last updated: 2026-04-25
 
 ## Vision vs Reality
 
@@ -85,7 +85,7 @@
 
 | Gap | Priority | Effort | Notes |
 |-----|----------|--------|-------|
-| Session detection timing | P1 | 4h | Symlink fixed, tailer timing remains |
+| Session detection timing | ✅ resolved | — | Symlink (2026-04-19) + post-exit drain + sandbox pre-existence (2026-04-25) |
 | Multi-agent orchestration | P2 | 16h | Current: 1 agent per task |
 | Context inheritance | P2 | 8h | org → project → team hierarchy |
 | Skill library | P3 | 24h | Out of scope for CLI pilot |
@@ -123,7 +123,8 @@
     │    ├── dandori run -- claude ...        │
     │    ├── dandori jira-sync                │
     │    ├── dandori conf-write               │
-    │    ├── dandori analytics                │
+    │    ├── dandori analytics {runs,cost,all}│
+    │    ├── dandori demo (seed/restore)      │
     │    └── dandori dashboard                │
     │                                         │
     │  ~/.dandori/                            │
@@ -134,7 +135,7 @@
 
 ## Next Steps
 
-1. **Fix remaining tailer issues** — ensure 100% token capture
+1. ✅ **Token capture** — resolved 2026-04-25 (snapshot pre-existence fix); 3/3 live runs capture tokens > 0.
 2. **Improve E2E test reliability** — currently 82.9% pass rate
 3. **Consider multi-agent** — for complex tasks requiring parallel work
 4. **Document real-world usage** — collect feedback from actual PO/QA usage
