@@ -3,6 +3,7 @@ package wrapper
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/phuc-nt/dandori-cli/internal/db"
+	"github.com/phuc-nt/dandori-cli/internal/event"
 	"github.com/phuc-nt/dandori-cli/internal/model"
 	"github.com/phuc-nt/dandori-cli/internal/quality"
 	"github.com/phuc-nt/dandori-cli/internal/util"
@@ -29,6 +31,10 @@ type Options struct {
 	AgentType       string
 	QualityConfig   quality.Config
 	PostExitTimeout time.Duration // 0 = --no-wait, <0 = use DefaultPostExitTimeout
+	// RunID lets the caller pre-create the runs row (status=pending) before the
+	// wrapper starts so that earlier work (e.g. taskcontext fetch) can emit
+	// events tagged with a real run_id. When empty, wrapper generates one.
+	RunID string
 }
 
 type Result struct {
@@ -53,7 +59,10 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 		return nil, fmt.Errorf("no command specified")
 	}
 
-	runID := util.GenerateRunID()
+	runID := opts.RunID
+	if runID == "" {
+		runID = util.GenerateRunID()
+	}
 	startedAt := time.Now()
 
 	cwd, _ := os.Getwd()
@@ -141,8 +150,9 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 		if timeout < 0 {
 			timeout = DefaultPostExitTimeout
 		}
+		recorder := event.NewRecorder(localDB)
 		go func() {
-			usage := TailSessionLogWithTimeout(tailerCtx, cwd, sessionSnapshot, timeout)
+			usage := TailSessionLogWithRecorder(tailerCtx, cwd, sessionSnapshot, timeout, recorder, runID)
 			usageChan <- usage
 		}()
 	} else {
@@ -181,6 +191,8 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 	if err := updateRunComplete(localDB, runID, endedAt, duration, exitCode, status, gitHeadAfter, sessionID, tokenUsage, costUSD); err != nil {
 		slog.Error("update run", "error", err)
 	}
+
+	emitIterationEndIfApplicable(localDB, runID)
 
 	// Quality snapshot after and store metrics
 	if qualityCollector != nil && qualityBefore != nil {
@@ -222,6 +234,38 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 	}, nil
 }
 
+// emitIterationEndIfApplicable closes the loop on iteration tracking: if a
+// task.iteration.start event was previously emitted against this run (set up
+// by the poller when it detected the Done→Active transition), emit a matching
+// task.iteration.end with the same round number. Failures are logged and
+// swallowed — tracking must never break a finished run.
+func emitIterationEndIfApplicable(localDB *db.LocalDB, runID string) {
+	row := localDB.QueryRow(`
+		SELECT data FROM events
+		WHERE run_id = ? AND event_type = 'task.iteration.start'
+		ORDER BY id DESC LIMIT 1
+	`, runID)
+	var data string
+	if err := row.Scan(&data); err != nil {
+		return // none — round 1 (implicit), nothing to close
+	}
+
+	recorder := event.NewRecorder(localDB)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(data), &payload); err != nil {
+		slog.Warn("iteration end: parse start payload", "error", err)
+		return
+	}
+	endPayload := map[string]any{
+		"round":     payload["round"],
+		"issue_key": payload["issue_key"],
+		"ended_at":  time.Now().Format(time.RFC3339),
+	}
+	if err := recorder.RecordEvent(runID, model.LayerSemantic, "task.iteration.end", endPayload); err != nil {
+		slog.Warn("iteration end: record event", "error", err)
+	}
+}
+
 func getGitHead() string {
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	out, err := cmd.Output()
@@ -241,12 +285,28 @@ func getGitRemote() string {
 }
 
 func insertRun(localDB *db.LocalDB, run *model.Run) error {
+	// ON CONFLICT updates the row so callers can pre-create a pending run
+	// (e.g. for taskcontext.Fetch event tagging) and the wrapper still owns
+	// the canonical fields once execution starts.
 	_, err := localDB.Exec(`
 		INSERT INTO runs (
 			id, jira_issue_key, jira_sprint_id, agent_name, agent_type,
 			user, workstation_id, cwd, git_remote, git_head_before,
 			command, started_at, status
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			jira_issue_key = excluded.jira_issue_key,
+			jira_sprint_id = excluded.jira_sprint_id,
+			agent_name     = excluded.agent_name,
+			agent_type     = excluded.agent_type,
+			user           = excluded.user,
+			workstation_id = excluded.workstation_id,
+			cwd            = excluded.cwd,
+			git_remote     = excluded.git_remote,
+			git_head_before= excluded.git_head_before,
+			command        = excluded.command,
+			started_at     = excluded.started_at,
+			status         = excluded.status
 	`,
 		run.ID, run.JiraIssueKey, run.JiraSprintID, run.AgentName, run.AgentType,
 		run.User, run.WorkstationID, run.CWD, run.GitRemote, run.GitHeadBefore,

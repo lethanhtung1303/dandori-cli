@@ -56,21 +56,22 @@ type Sprint struct {
 }
 
 type Issue struct {
-	Key         string
-	Summary     string
-	Description string
-	IssueType   string
-	Priority    string
-	Status      string
-	SprintID    int
-	SprintName  string
-	Assignee    string
-	Labels      []string
-	StoryPoints float64
-	AgentName   string
-	EpicKey     string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Key               string
+	Summary           string
+	Description       string
+	IssueType         string
+	Priority          string
+	Status            string
+	StatusCategoryKey string // Jira statusCategory.key: done|indeterminate|new
+	SprintID          int
+	SprintName        string
+	Assignee          string
+	Labels            []string
+	StoryPoints       float64
+	AgentName         string
+	EpicKey           string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 
 	ConfluenceLinks []ConfluenceLink
 }
@@ -125,7 +126,10 @@ type issueResponse struct {
 			Name string `json:"name"`
 		} `json:"priority"`
 		Status struct {
-			Name string `json:"name"`
+			Name           string `json:"name"`
+			StatusCategory struct {
+				Key string `json:"key"`
+			} `json:"statusCategory"`
 		} `json:"status"`
 		Labels   []string `json:"labels"`
 		Assignee struct {
@@ -152,7 +156,8 @@ func parseIssue(resp *issueResponse) *Issue {
 		Description: parseDescription(resp.Fields.Description),
 		IssueType:   resp.Fields.IssueType.Name,
 		Priority:    resp.Fields.Priority.Name,
-		Status:      resp.Fields.Status.Name,
+		Status:            resp.Fields.Status.Name,
+		StatusCategoryKey: resp.Fields.Status.StatusCategory.Key,
 		SprintID:    resp.Fields.Sprint.ID,
 		SprintName:  resp.Fields.Sprint.Name,
 		Assignee:    resp.Fields.Assignee.DisplayName,

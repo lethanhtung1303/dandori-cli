@@ -4,6 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/phuc-nt/dandori-cli/internal/db"
+	"github.com/phuc-nt/dandori-cli/internal/event"
+	"github.com/phuc-nt/dandori-cli/internal/model"
 )
 
 type Poller struct {
@@ -16,6 +20,9 @@ type Poller struct {
 	onAssigned      func(Issue)
 	onSuggestAgent  func(Issue) (agentName string, score int, reason string)
 	reminderAfter   time.Duration
+
+	localDB  *db.LocalDB
+	recorder *event.Recorder
 }
 
 type pendingSuggest struct {
@@ -32,6 +39,12 @@ type PollerConfig struct {
 	OnAssigned     func(Issue)
 	OnSuggestAgent func(Issue) (agentName string, score int, reason string)
 	ReminderAfter  time.Duration
+
+	// LocalDB + Recorder enable iteration detection. When either is nil,
+	// the poller skips iteration tracking — keeps the existing assignment
+	// flow unchanged for callers that don't need this feature yet.
+	LocalDB  *db.LocalDB
+	Recorder *event.Recorder
 }
 
 func NewPoller(cfg PollerConfig) *Poller {
@@ -55,6 +68,8 @@ func NewPoller(cfg PollerConfig) *Poller {
 		onAssigned:      cfg.OnAssigned,
 		onSuggestAgent:  cfg.OnSuggestAgent,
 		reminderAfter:   reminderAfter,
+		localDB:         cfg.LocalDB,
+		recorder:        cfg.Recorder,
 	}
 }
 
@@ -155,7 +170,63 @@ func (p *Poller) Poll(ctx context.Context) error {
 	}
 
 	p.lastIssueSet = currentSet
+
+	p.detectIterations(issues)
 	return nil
+}
+
+// detectIterations walks current sprint issues and emits task.iteration.start
+// events for any that have regressed from a prior completed run. Failures here
+// must NEVER break the poll cycle — log and continue.
+func (p *Poller) detectIterations(issues []Issue) {
+	if p.localDB == nil || p.recorder == nil {
+		return
+	}
+	for _, issue := range issues {
+		lastRun, err := p.localDB.LatestRunForIssue(issue.Key)
+		if err != nil {
+			slog.Warn("iteration: latest run lookup failed", "key", issue.Key, "error", err)
+			continue
+		}
+		if lastRun == nil {
+			continue
+		}
+		existing, err := p.localDB.IterationEventsForIssue(issue.Key)
+		if err != nil {
+			slog.Warn("iteration: events lookup failed", "key", issue.Key, "error", err)
+			continue
+		}
+		evt, err := DetectIteration(&issue,
+			&PriorRun{
+				RunID:                    lastRun.ID,
+				Status:                   lastRun.Status,
+				JiraStatusAtCompletion:   lastRun.JiraStatusAtCompletion,
+				JiraCategoryAtCompletion: lastRun.JiraCategoryAtCompletion,
+				EndedAt:                  lastRun.EndedAt,
+			},
+			toIterationEvents(existing),
+		)
+		if err != nil || evt == nil {
+			continue
+		}
+		if err := p.recorder.RecordEvent(lastRun.ID, model.LayerSemantic, "task.iteration.start", evt.Payload()); err != nil {
+			slog.Warn("iteration: record event failed", "key", issue.Key, "error", err)
+			continue
+		}
+		slog.Info("iteration detected", "key", issue.Key, "round", evt.Round, "prev_run", evt.PrevRunID)
+	}
+}
+
+func toIterationEvents(rows []db.IterationEventRow) []IterationEvent {
+	out := make([]IterationEvent, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, IterationEvent{
+			Round:          r.Round,
+			IssueKey:       r.IssueKey,
+			TransitionedAt: r.TransitionedAt,
+		})
+	}
+	return out
 }
 
 func (p *Poller) postSuggestionComment(issueKey, agentName string, score int, reason string) {
