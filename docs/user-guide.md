@@ -180,7 +180,16 @@ dandori analytics context                    # top Confluence pages read as task
 dandori analytics iterations                 # avg/max feedback rounds per agent
 dandori analytics iterations --by engineer   # group by engineer
 dandori analytics iterations --by sprint     # group by sprint
-# All three accept --format json for piping
+dandori analytics bugs                       # bugs caused per agent (from Jira Bug tickets)
+dandori analytics bugs --by task             # bugs per Jira task
+dandori analytics bugs --since 30 --format json
+# All accept --format json for piping
+
+# Jira poller daemon (sprint cycle + bug-link cycle)
+dandori jira-poll                            # foreground daemon (Ctrl-C to stop)
+dandori jira-poll --once                     # single pass — useful for cron / launchd / systemd
+dandori jira-poll --interval 60 --bug-interval 1800
+dandori jira-poll --skip-bugs                # only run sprint cycle (skip bug-link search)
 
 # Web dashboard with charts
 dandori dashboard               # opens browser to http://localhost:8088
@@ -281,8 +290,10 @@ beta   8     +1.0    +5.0     820    8        60%       50%
 | `dandori analytics {runs\|agents\|cost\|quality\|all}` | Terminal analytics |
 | `dandori analytics cost --by {engineer\|department}` | Group cost by engineer or department |
 | `dandori analytics all --since 30` | 4-block snapshot (cost · leaderboard · quality · alerts) |
-| `dandori analytics {tools\|context\|iterations}` | Layer-3 instrumentation analytics |
+| `dandori analytics {tools\|context\|iterations\|bugs}` | Layer-3 instrumentation analytics |
 | `dandori analytics iterations --by {agent\|engineer\|sprint}` | Group iteration rounds |
+| `dandori analytics bugs --by {agent\|task}` | Group bug.filed events |
+| `dandori jira-poll [--once\|--bug-interval N\|--skip-bugs]` | Sprint + bug-link poller daemon |
 | `dandori dashboard` | Web UI |
 | `dandori demo --reset --seed --use\|--restore` | Demo DB sandbox (blog scenario) |
 | `dandori status` | Recent runs summary |

@@ -1,8 +1,8 @@
-# 2026-04-26 — Tracking Layer-3 Completion (4 phases live)
+# 2026-04-26 — Tracking Layer-3 Completion (all 5 phases live)
 
 ## Summary
 
-Closed 4 of 5 originally identified Layer-3 tracking gaps from `plans/260425-2100-tracking-layer-3-completion/`.
+Closed all 5 originally identified Layer-3 tracking gaps from `plans/260425-2100-tracking-layer-3-completion/`.
 All TDD (RED → GREEN). Full `go test ./...` green. Live verified against
 fooknt.atlassian.net (CLITEST project / space).
 
@@ -14,7 +14,7 @@ fooknt.atlassian.net (CLITEST project / space).
 | 02 | Confluence read events | `taskcontext.Build` records `confluence.read{page_id, title, char_count, version}` per page fetched | ✅ 1 event for CLITEST-1 with linked test page |
 | 03 | Task iteration tracking | `DetectIteration` (workflow-agnostic via `statusCategory.key`) + poller integration + wrapper emits `task.iteration.end` | ⚠️ via integration test (httptest); CLI daemon command not yet wired |
 | 05 | Analytics queries | `dandori analytics tools \| context \| iterations` with `--since / --top / --by / --format` flags | ✅ all three return real data, JSON format valid |
-| 04 core | Bug-link Jira | `ParseDescriptionTags`, `ParseLinkCandidates`, `DetectBugLinks` + `BugLinkResolver` interface + DB resolvers (`FindRunByPrefix`, `BugEventExists`) | core only — auto-poller wiring deferred |
+| 04 | Bug-link Jira | `ParseDescriptionTags`, `ParseLinkCandidates`, `DetectBugLinks` + `BugLinkResolver` interface + DB resolvers + `bugLinkCycle` ticker on `Poller` + `dandori analytics bugs --by agent\|task` + `dandori jira-poll [--once\|--bug-interval]` daemon command | ✅ CLITEST-61 description-tag bug → `bug.filed` event → analytics returns alpha=1 / TASK=1 |
 
 ## Architecture decisions
 
@@ -50,34 +50,51 @@ PAGE     TITLE                              READS  LAST READ
 $ dandori analytics iterations --by engineer
 ENGINEER  AVG ROUND  MAX ROUND  TASKS
 (none)    1.00       1          4
+
+$ # Phase 04: created CLITEST-61 (Bug) with description "caused_by:5be1c1435d3e"
+$ dandori jira-poll --once
+... INFO msg="bug linked" bug_key=CLITEST-61 run=5be1c1435d3ef76e link_type=description_tag
+$ dandori analytics bugs
+AGENT           BUGS  LAST FILED
+e2e-test-alpha  1     2026-04-26 08:24
+$ dandori analytics bugs --by task
+TASK       BUGS  LAST FILED
+CLITEST-1  1     2026-04-26 08:24
+$ dandori jira-poll --once   # second run — dedupe via bug_key
+(no new bug.filed event; count remains 1)
 ```
 
 ## Gaps remaining
 
-1. **Phase 04 wiring (P2 / 3d / optional)** — `bugLinkCycle` ticker on `Poller`, JQL search for new Bug issues, bug analytics aggregations + `--bugs` flag, `last_scan_at` persistence
-2. **Jira poller daemon command** — Phase 03 logic is wired into `Poller.Poll()` but no CLI command starts the poller in foreground/daemon mode (only `dandori watch` exists, that one polls Claude session logs not Jira)
-3. **REFACTOR todos** from each phase: config-driven `causedByLinkTypes`, config-driven `doneCategories` / `activeCategories`, `docs/bug-link.md` user-facing convention guide
-4. **Skill events not observed live** — Claude `--print` mode answered the test prompt from training data without invoking the Skill tool. Unit tests cover the parser via fixture session JSONL.
+1. **REFACTOR todos** from each phase: config-driven `causedByLinkTypes`, config-driven `doneCategories` / `activeCategories`, `docs/bug-link.md` user-facing convention guide
+2. **"is caused by" link path not exercised live** — fooknt Jira instance lacks the link type. Unit tests cover the path via stubbed link payloads. Description-tag path verified end-to-end.
+3. **Skill events not observed live** — Claude `--print` mode answered the test prompt from training data without invoking the Skill tool. Unit tests cover the parser via fixture session JSONL.
 
 ## Files
 
 New:
 - `internal/jira/iteration.go` + `_test.go`
 - `internal/jira/buglink.go` + `_test.go`
+- `internal/jira/buglink_search_test.go`
 - `internal/jira/poller_iteration_test.go`
+- `internal/jira/poller_buglink_test.go`
 - `internal/db/iteration.go` + `_test.go`
 - `internal/db/buglink.go` + `_test.go`
 - `internal/db/event_analytics.go` + `_test.go`
+- `internal/db/bug_analytics.go` + `_test.go`
 - `internal/wrapper/tailer_events.go` + `_test.go`
 - `internal/wrapper/tailer_recorder_test.go`
 - `internal/wrapper/iteration_end_test.go`
 - `internal/wrapper/testdata/session-with-tools.jsonl`
 - `internal/taskcontext/recorder_test.go`
 - `cmd/analytics_events.go`
+- `cmd/jira_poll.go`
 
 Modified:
-- `internal/jira/models.go` — added `StatusCategoryKey` to `Issue`
-- `internal/jira/poller.go` — `LocalDB` + `Recorder` fields, `detectIterations()` end of cycle
+- `internal/jira/models.go` — added `StatusCategoryKey`, `Links []IssueLink`, `IssueLinks` parsing on `issueResponse`
+- `internal/jira/client.go` — `SearchBugs(jql, max)` for the bug-link cycle
+- `internal/jira/buglink.go` — `BugIssue.FromIssue` adapter
+- `internal/jira/poller.go` — `LocalDB` + `Recorder` fields, `detectIterations()` per cycle, `bugLinkCycle()` on a separate ticker, `BugLinkCycleOnce()` for `--once` mode
 - `internal/wrapper/tailer.go` — recorder/runID params, calls `parseLineForEvents`
 - `internal/wrapper/wrapper.go` — `emitIterationEndIfApplicable` after run completion
 - `internal/taskcontext/context.go` — Recorder param, emits `confluence.read` per page
@@ -86,5 +103,6 @@ Modified:
 
 ## Next
 
-Pick up Phase 04 wiring + jira-poll daemon command (single short feature) — turns
-both Phase 03 + 04 from "core verified" into "auto-running in production".
+REFACTOR pass: pull `causedByLinkTypes`, `doneCategories`, `activeCategories` into
+config so non-default Jira workflows (and instances missing "is caused by") can be
+adapted without code changes. Then `docs/bug-link.md` user-facing convention guide.
