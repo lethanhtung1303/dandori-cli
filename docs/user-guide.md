@@ -173,6 +173,15 @@ dandori analytics cost --by engineer         # group by engineer
 dandori analytics cost --by department       # group by department
 dandori analytics all --since 30             # 4-block snapshot: cost · leaderboard · quality · alerts
 
+# Layer-3 instrumentation analytics (tools, context, iterations)
+dandori analytics tools                      # top tools used by agents (with success%)
+dandori analytics tools --top 10 --since 30
+dandori analytics context                    # top Confluence pages read as task context
+dandori analytics iterations                 # avg/max feedback rounds per agent
+dandori analytics iterations --by engineer   # group by engineer
+dandori analytics iterations --by sprint     # group by sprint
+# All three accept --format json for piping
+
 # Web dashboard with charts
 dandori dashboard               # opens browser to http://localhost:8088
 ```
@@ -272,6 +281,8 @@ beta   8     +1.0    +5.0     820    8        60%       50%
 | `dandori analytics {runs\|agents\|cost\|quality\|all}` | Terminal analytics |
 | `dandori analytics cost --by {engineer\|department}` | Group cost by engineer or department |
 | `dandori analytics all --since 30` | 4-block snapshot (cost · leaderboard · quality · alerts) |
+| `dandori analytics {tools\|context\|iterations}` | Layer-3 instrumentation analytics |
+| `dandori analytics iterations --by {agent\|engineer\|sprint}` | Group iteration rounds |
 | `dandori dashboard` | Web UI |
 | `dandori demo --reset --seed --use\|--restore` | Demo DB sandbox (blog scenario) |
 | `dandori status` | Recent runs summary |

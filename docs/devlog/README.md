@@ -12,6 +12,25 @@ Development history organized by date and topic.
 | [phase-08-final](2026-04-18-phase-08-final.md) | E2E, Integration, Summary | ✅ |
 | [shell-alias-watch](2026-04-18-shell-alias-watch-daemon.md) | Shell transparency + watch daemon | ✅ |
 
+## 2026-04-19 — Context Injection + Session Detection
+
+| File | Topics | Status |
+|------|--------|--------|
+| [context-injection](2026-04-19-context-injection.md) | Task context flow | ✅ |
+| [session-detection-fix](2026-04-19-session-detection-fix.md) | Wrapper session ID detection | ✅ |
+
+## 2026-04-25 — Hackday Prep
+
+| File | Topics | Status |
+|------|--------|--------|
+| [hackday-prep-and-snapshot-fix](2026-04-25-hackday-prep-and-snapshot-fix.md) | 5 phases + tokens=0 regression fix | ✅ |
+
+## 2026-04-26 — Tracking Layer-3 Completion
+
+| File | Topics | Status |
+|------|--------|--------|
+| [tracking-layer-3-completion](2026-04-26-tracking-layer-3-completion.md) | tool/skill events, confluence.read, iteration tracking, bug-link core, analytics queries | ✅ 4/5 phases live |
+
 ## Progress
 
 **Overall: 97/97 items = 100%**
