@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,13 +28,64 @@ func init() {
 	dashboardCmd.Flags().IntVarP(&dashboardPort, "port", "p", 8088, "Port to serve dashboard")
 }
 
+// newDashboardMux builds and returns the HTTP mux for the dashboard.
+// Extracted so tests can call it directly without starting a server.
+func newDashboardMux(store *db.LocalDB, jiraBaseURL string) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	// Serve dashboard HTML with Jira URL injected
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		html := strings.ReplaceAll(dashboardHTML, "{{JIRA_BASE_URL}}", jiraBaseURL)
+		w.Write([]byte(html)) //nolint:errcheck
+	})
+
+	// API endpoints
+	mux.HandleFunc("/api/overview", func(w http.ResponseWriter, r *http.Request) {
+		runs, cost, tokens, _ := store.GetTotalStats()
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"runs": runs, "cost": cost, "tokens": tokens,
+		})
+	})
+
+	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
+		stats, _ := store.GetAgentStats()
+		json.NewEncoder(w).Encode(stats) //nolint:errcheck
+	})
+
+	mux.HandleFunc("/api/cost/agent", func(w http.ResponseWriter, r *http.Request) {
+		groups, _ := store.GetCostByAgent()
+		json.NewEncoder(w).Encode(groups) //nolint:errcheck
+	})
+
+	mux.HandleFunc("/api/cost/task", func(w http.ResponseWriter, r *http.Request) {
+		groups, _ := store.GetCostByTask()
+		json.NewEncoder(w).Encode(groups) //nolint:errcheck
+	})
+
+	mux.HandleFunc("/api/cost/day", func(w http.ResponseWriter, r *http.Request) {
+		groups, _ := store.GetCostByDay()
+		json.NewEncoder(w).Encode(groups) //nolint:errcheck
+	})
+
+	mux.HandleFunc("/api/runs", func(w http.ResponseWriter, r *http.Request) {
+		runs, _ := store.GetRecentRuns(50)
+		json.NewEncoder(w).Encode(runs) //nolint:errcheck
+	})
+
+	// Quality KPI endpoints
+	mux.HandleFunc("/api/quality/regression", qualityHandler(store, "regression"))
+	mux.HandleFunc("/api/quality/bugs", qualityHandler(store, "bugs"))
+	mux.HandleFunc("/api/quality/cost", qualityHandler(store, "cost"))
+
+	return mux
+}
+
 func runDashboard(cmd *cobra.Command, args []string) error {
 	store, err := db.Open("")
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-
-	mux := http.NewServeMux()
 
 	// Get Jira URL from config
 	jiraBaseURL := "https://jira.example.com"
@@ -41,45 +93,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 		jiraBaseURL = strings.TrimSuffix(cfg.Jira.BaseURL, "/")
 	}
 
-	// Serve dashboard HTML with Jira URL injected
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		html := strings.ReplaceAll(dashboardHTML, "{{JIRA_BASE_URL}}", jiraBaseURL)
-		w.Write([]byte(html))
-	})
-
-	// API endpoints
-	mux.HandleFunc("/api/overview", func(w http.ResponseWriter, r *http.Request) {
-		runs, cost, tokens, _ := store.GetTotalStats()
-		json.NewEncoder(w).Encode(map[string]any{
-			"runs": runs, "cost": cost, "tokens": tokens,
-		})
-	})
-
-	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
-		stats, _ := store.GetAgentStats()
-		json.NewEncoder(w).Encode(stats)
-	})
-
-	mux.HandleFunc("/api/cost/agent", func(w http.ResponseWriter, r *http.Request) {
-		groups, _ := store.GetCostByAgent()
-		json.NewEncoder(w).Encode(groups)
-	})
-
-	mux.HandleFunc("/api/cost/task", func(w http.ResponseWriter, r *http.Request) {
-		groups, _ := store.GetCostByTask()
-		json.NewEncoder(w).Encode(groups)
-	})
-
-	mux.HandleFunc("/api/cost/day", func(w http.ResponseWriter, r *http.Request) {
-		groups, _ := store.GetCostByDay()
-		json.NewEncoder(w).Encode(groups)
-	})
-
-	mux.HandleFunc("/api/runs", func(w http.ResponseWriter, r *http.Request) {
-		runs, _ := store.GetRecentRuns(50)
-		json.NewEncoder(w).Encode(runs)
-	})
+	mux := newDashboardMux(store, jiraBaseURL)
 
 	addr := fmt.Sprintf(":%d", dashboardPort)
 	url := fmt.Sprintf("http://localhost:%d", dashboardPort)
@@ -94,6 +108,53 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	}()
 
 	return http.ListenAndServe(addr, mux)
+}
+
+// qualityHandler returns an HTTP handler for the given quality KPI endpoint.
+// kpi must be one of "regression", "bugs", "cost".
+func qualityHandler(store *db.LocalDB, kpi string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		by := r.URL.Query().Get("by")
+		switch by {
+		case "", "agent", "engineer", "sprint":
+			// valid
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"invalid by: must be agent, engineer, or sprint"}`, http.StatusBadRequest)
+			return
+		}
+		since := atoiOr(r.URL.Query().Get("since"), 0)
+		w.Header().Set("Content-Type", "application/json")
+
+		var data any
+		var qerr error
+		switch kpi {
+		case "regression":
+			data, qerr = store.RegressionRate(by, since)
+		case "bugs":
+			data, qerr = store.BugRate(by, since)
+		case "cost":
+			top := atoiOr(r.URL.Query().Get("top"), 50)
+			data, qerr = store.QualityAdjustedCost(by, since, top)
+		}
+		if qerr != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, qerr.Error()), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(data) //nolint:errcheck
+	}
+}
+
+// atoiOr parses s as an integer; returns def on empty string or parse error.
+func atoiOr(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func openBrowser(url string) {
@@ -654,6 +715,35 @@ const dashboardHTML = `<!DOCTYPE html>
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+
+        /* Dimension selector dropdown */
+        .dim-selector {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            font-size: 13px;
+            font-family: inherit;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .dim-selector:hover { border-color: var(--bg-hover); }
+        .dim-selector:focus { outline: none; border-color: var(--accent); }
+
+        /* Clean badge for quality cost table */
+        .clean-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .clean-badge.yes { background: var(--success-bg); color: var(--success); }
+        .clean-badge.no  { background: var(--error-bg);   color: var(--error); }
     </style>
 </head>
 <body>
@@ -687,6 +777,12 @@ const dashboardHTML = `<!DOCTYPE html>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                     Costs
+                </a>
+                <a class="nav-item" href="#quality">
+                    <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Quality KPI
                 </a>
             </nav>
             <div style="padding: 16px 12px; border-top: 1px solid var(--border);">
@@ -786,8 +882,97 @@ const dashboardHTML = `<!DOCTYPE html>
                 </div>
             </div>
 
+            <!-- Quality KPI Section -->
+            <div id="quality" style="margin-bottom: 24px;">
+
+            <!-- Quality KPI: Regression Rate -->
+            <div class="card fade-in" style="animation-delay: 0.35s; margin-bottom: 16px;">
+                <div class="card-header">
+                    <span class="card-title">Quality KPI — Regression Rate</span>
+                    <select class="dim-selector" data-kpi="regression">
+                        <option value="agent">By Agent</option>
+                        <option value="engineer">By Engineer</option>
+                        <option value="sprint">By Sprint</option>
+                    </select>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                        <table id="quality-regression-table">
+                            <thead>
+                                <tr>
+                                    <th class="dim-header">Agent</th>
+                                    <th>Tasks</th>
+                                    <th>Regressed</th>
+                                    <th>Regression %</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quality KPI: Bug Rate -->
+            <div class="card fade-in" style="animation-delay: 0.4s; margin-bottom: 16px;">
+                <div class="card-header">
+                    <span class="card-title">Quality KPI — Bug Rate</span>
+                    <select class="dim-selector" data-kpi="bugs">
+                        <option value="agent">By Agent</option>
+                        <option value="engineer">By Engineer</option>
+                        <option value="sprint">By Sprint</option>
+                    </select>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                        <table id="quality-bugs-table">
+                            <thead>
+                                <tr>
+                                    <th class="dim-header">Agent</th>
+                                    <th>Runs</th>
+                                    <th>Bugs</th>
+                                    <th>Bugs / Run</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quality KPI: Quality-Adjusted Cost -->
+            <div class="card fade-in" style="animation-delay: 0.45s;">
+                <div class="card-header">
+                    <span class="card-title">Quality KPI — Quality-Adjusted Cost</span>
+                    <select class="dim-selector" data-kpi="cost">
+                        <option value="agent">By Agent</option>
+                        <option value="engineer">By Engineer</option>
+                        <option value="sprint">By Sprint</option>
+                    </select>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                        <table id="quality-cost-table">
+                            <thead>
+                                <tr>
+                                    <th>Task</th>
+                                    <th class="dim-header">Agent</th>
+                                    <th>Cost</th>
+                                    <th>Runs</th>
+                                    <th>Iterations</th>
+                                    <th>Bugs</th>
+                                    <th>Clean</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            </div> <!-- end #quality -->
+
             <!-- Recent Runs -->
-            <div class="card fade-in" style="animation-delay: 0.35s;" id="runs">
+            <div class="card fade-in" style="animation-delay: 0.5s;" id="runs">
                 <div class="card-header">
                     <span class="card-title">Recent Runs</span>
                 </div>
@@ -1155,6 +1340,91 @@ const dashboardHTML = `<!DOCTYPE html>
             });
         });
 
+        // Load Quality KPI: Regression Rate
+        async function loadQualityRegression(by) {
+            by = by || document.querySelector('.dim-selector[data-kpi="regression"]').value;
+            try {
+                const res = await fetch('/api/quality/regression?by=' + encodeURIComponent(by));
+                const rows = await res.json();
+                const table = document.querySelector('#quality-regression-table');
+                table.querySelector('.dim-header').textContent = by.charAt(0).toUpperCase() + by.slice(1);
+                const tbody = table.querySelector('tbody');
+                if (!rows || rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No quality KPI data yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = rows.map(r => ` + "`" + `<tr>
+                    <td style="color: var(--text-primary); font-weight: 500;">${r.group_key || '(unassigned)'}</td>
+                    <td>${r.total_tasks}</td>
+                    <td>${r.regressed_tasks}</td>
+                    <td>${r.regression_pct.toFixed(1)}%</td>
+                </tr>` + "`" + `).join('');
+            } catch (e) {
+                console.error('Failed to load quality regression:', e);
+            }
+        }
+
+        // Load Quality KPI: Bug Rate
+        async function loadQualityBugs(by) {
+            by = by || document.querySelector('.dim-selector[data-kpi="bugs"]').value;
+            try {
+                const res = await fetch('/api/quality/bugs?by=' + encodeURIComponent(by));
+                const rows = await res.json();
+                const table = document.querySelector('#quality-bugs-table');
+                table.querySelector('.dim-header').textContent = by.charAt(0).toUpperCase() + by.slice(1);
+                const tbody = table.querySelector('tbody');
+                if (!rows || rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No quality KPI data yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = rows.map(r => ` + "`" + `<tr>
+                    <td style="color: var(--text-primary); font-weight: 500;">${r.group_key || '(unassigned)'}</td>
+                    <td>${r.runs}</td>
+                    <td>${r.bugs}</td>
+                    <td>${r.bugs_per_run.toFixed(2)}</td>
+                </tr>` + "`" + `).join('');
+            } catch (e) {
+                console.error('Failed to load quality bugs:', e);
+            }
+        }
+
+        // Load Quality KPI: Quality-Adjusted Cost
+        async function loadQualityCost(by) {
+            by = by || document.querySelector('.dim-selector[data-kpi="cost"]').value;
+            try {
+                const res = await fetch('/api/quality/cost?by=' + encodeURIComponent(by));
+                const rows = await res.json();
+                const table = document.querySelector('#quality-cost-table');
+                table.querySelector('.dim-header').textContent = by.charAt(0).toUpperCase() + by.slice(1);
+                const tbody = table.querySelector('tbody');
+                if (!rows || rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No quality KPI data yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = rows.map(r => ` + "`" + `<tr>
+                    <td style="font-family: monospace; font-size: 12px;">${r.issue_key}</td>
+                    <td style="color: var(--text-primary); font-weight: 500;">${r.group_key || '(unassigned)'}</td>
+                    <td class="cost">$${r.total_cost_usd.toFixed(4)}</td>
+                    <td>${r.run_count}</td>
+                    <td>${r.iteration_count}</td>
+                    <td>${r.bug_count}</td>
+                    <td><span class="clean-badge ${r.is_clean ? 'yes' : 'no'}">${r.is_clean ? 'Yes' : 'No'}</span></td>
+                </tr>` + "`" + `).join('');
+            } catch (e) {
+                console.error('Failed to load quality cost:', e);
+            }
+        }
+
+        // Wire dropdown change events for Quality KPI
+        document.querySelectorAll('.dim-selector').forEach(sel => {
+            sel.addEventListener('change', function() {
+                const kpi = this.dataset.kpi;
+                if (kpi === 'regression') loadQualityRegression(this.value);
+                if (kpi === 'bugs')       loadQualityBugs(this.value);
+                if (kpi === 'cost')       loadQualityCost(this.value);
+            });
+        });
+
         // Load all data
         function loadAll() {
             loadOverview();
@@ -1162,6 +1432,9 @@ const dashboardHTML = `<!DOCTYPE html>
             loadCostChart();
             loadTrendChart();
             loadRuns();
+            loadQualityRegression();
+            loadQualityBugs();
+            loadQualityCost();
         }
 
         // Initial load
