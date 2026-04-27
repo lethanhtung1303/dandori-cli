@@ -209,6 +209,17 @@ The dashboard has:
 - Recent runs timeline
 - Quality KPI section: regression rate, bug rate, quality-adjusted cost — each with `--by agent | engineer | sprint` dropdown
 
+### `dandori analytics kpi` — Composite Quality KPIs
+
+Flags: `--kpi {regression|bugs|cost}` selects the metric (regression rate, bug rate, quality-adjusted cost); `--by {agent|engineer|sprint}` groups results; `--top N` limits rows; `--since N` restricts to last N days; `--format json` for piping.
+
+Example output (`dandori analytics kpi --kpi regression --by agent`):
+```
+AGENT   RUNS  REGRESSIONS  RATE
+alpha   42    3            7.1%
+beta    18    4            22.2%
+```
+
 ---
 
 ## Use Case 7 — PO/PDM: Assign Agent to a New Task
