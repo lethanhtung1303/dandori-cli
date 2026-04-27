@@ -1,10 +1,45 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    slog.Level
+		wantErr bool
+	}{
+		{"", slog.LevelInfo, false},
+		{"info", slog.LevelInfo, false},
+		{"INFO", slog.LevelInfo, false},
+		{"debug", slog.LevelDebug, false},
+		{" Debug ", slog.LevelDebug, false},
+		{"warn", slog.LevelWarn, false},
+		{"warning", slog.LevelWarn, false},
+		{"error", slog.LevelError, false},
+		{"trace", slog.LevelInfo, true},
+		{"bogus", slog.LevelInfo, true},
+	}
+	for _, tt := range tests {
+		got, err := ParseLogLevel(tt.in)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("ParseLogLevel(%q) err = %v, wantErr %v", tt.in, err, tt.wantErr)
+		}
+		if got != tt.want {
+			t.Errorf("ParseLogLevel(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestDefaultLogLevel(t *testing.T) {
+	if got := DefaultConfig().LogLevel; got != "info" {
+		t.Errorf("default log level = %q, want %q", got, "info")
+	}
+}
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()

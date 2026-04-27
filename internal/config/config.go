@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,9 +10,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func ParseLogLevel(s string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "info":
+		return slog.LevelInfo, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return slog.LevelInfo, fmt.Errorf("invalid log level: %q", s)
+	}
+}
+
 type Config struct {
 	ServerURL  string           `yaml:"server_url"`
 	APIKey     string           `yaml:"api_key"`
+	LogLevel   string           `yaml:"log_level"`
 	Jira       JiraConfig       `yaml:"jira"`
 	Confluence ConfluenceConfig `yaml:"confluence"`
 	Agent      AgentConfig      `yaml:"agent"`
@@ -73,6 +90,7 @@ type SyncConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		ServerURL: "http://localhost:8080",
+		LogLevel:  "info",
 		Agent: AgentConfig{
 			Type: "claude_code",
 			Name: "default",
@@ -222,5 +240,8 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("DANDORI_PROJECT_TEAM"); v != "" {
 		cfg.Project.Team = v
+	}
+	if v := os.Getenv("DANDORI_LOG_LEVEL"); v != "" {
+		cfg.LogLevel = v
 	}
 }

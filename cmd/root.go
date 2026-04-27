@@ -29,7 +29,10 @@ It is the bridge between human project management and AI agent developers.`,
 			return fmt.Errorf("load config: %w", err)
 		}
 
-		logLevel := slog.LevelInfo
+		logLevel, err := config.ParseLogLevel(cfg.LogLevel)
+		if err != nil {
+			return fmt.Errorf("parse log level: %w", err)
+		}
 		if verbose {
 			logLevel = slog.LevelDebug
 		}
