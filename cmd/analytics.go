@@ -15,7 +15,7 @@ var analyticsCmd = &cobra.Command{
 	Use:   "analytics",
 	Short: "Local analytics from SQLite",
 	Long: `Query analytics from local SQLite database.
-Works offline with multi-agent data on single machine.
+Works offline with multi-agent data on a single machine.
 
 Examples:
   dandori analytics                    # Overview
