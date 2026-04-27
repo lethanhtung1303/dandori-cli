@@ -39,6 +39,32 @@ func TestParseDescriptionTags_RejectsShortPrefix(t *testing.T) {
 	}
 }
 
+// Regression for Bug #5 — multi-paragraph ADF descriptions used to be joined
+// without a separator, so a hex-letter word in the next paragraph (e.g. "Fix:")
+// leaked into the runID match. parseDescription must keep paragraphs apart.
+func TestParseDescription_MultiParagraphADF_PreservesRunIDBoundary(t *testing.T) {
+	adf := map[string]any{
+		"type":    "doc",
+		"version": 1,
+		"content": []any{
+			map[string]any{
+				"type":    "paragraph",
+				"content": []any{map[string]any{"type": "text", "text": "caused_by: a2669999463cdf04"}},
+			},
+			map[string]any{
+				"type":    "paragraph",
+				"content": []any{map[string]any{"type": "text", "text": "Fix: do the thing"}},
+			},
+		},
+	}
+	flat := parseDescription(adf)
+	tags := ParseDescriptionTags(flat)
+	want := []string{"a2669999463cdf04"}
+	if !reflect.DeepEqual(tags, want) {
+		t.Errorf("tags = %v, want %v (flattened: %q)", tags, want, flat)
+	}
+}
+
 func TestParseLinkCandidates_StructuredCausedBy(t *testing.T) {
 	bug := &BugIssue{
 		Key:     "BUG-1",

@@ -224,13 +224,21 @@ func parseDescription(v any) string {
 	return ""
 }
 
+// extractTextFromADF flattens an Atlassian Document Format doc into plain text.
+// Top-level nodes (paragraphs, headings) are separated by "\n" so adjacent
+// blocks don't bleed into each other — this matters for downstream regex
+// matchers like the bug-link `caused_by:<hex>` parser, which would otherwise
+// greedily consume a hex char from the next paragraph (Bug #5).
 func extractTextFromADF(doc map[string]any) string {
 	content, ok := doc["content"].([]any)
 	if !ok {
 		return ""
 	}
 	var result strings.Builder
-	for _, node := range content {
+	for i, node := range content {
+		if i > 0 {
+			result.WriteByte('\n')
+		}
 		if m, ok := node.(map[string]any); ok {
 			if text, ok := m["text"].(string); ok {
 				result.WriteString(text)
