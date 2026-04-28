@@ -71,6 +71,14 @@ func runConfWrite(cmd *cobra.Command, args []string) error {
 	var startedAt, endedAt time.Time
 
 	if confWriteRunID != "" {
+		// Resolve prefix → full run ID so users can paste a short hex.
+		resolved, resolveErr := localDB.FindRunByPrefix(confWriteRunID)
+		if resolveErr != nil {
+			return fmt.Errorf("resolve run id: %w", resolveErr)
+		}
+		if resolved != "" {
+			confWriteRunID = resolved
+		}
 		err = localDB.QueryRow(`
 			SELECT id, COALESCE(jira_issue_key, ''), agent_name, status, COALESCE(model, ''),
 			       COALESCE(duration_sec, 0), COALESCE(cost_usd, 0), COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
@@ -153,11 +161,21 @@ func runConfWrite(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("confluence.space_key not configured")
 	}
 
-	// Create Confluence client
+	// Confluence creds: prefer dedicated confluence.user/token (DC commonly
+	// separates Jira/Confluence permissions); fall back to Jira creds for
+	// Cloud-style single-tenant setups where one API token covers both.
+	confUser := cfg.Confluence.User
+	if confUser == "" {
+		confUser = cfg.Jira.User
+	}
+	confToken := cfg.Confluence.Token
+	if confToken == "" {
+		confToken = cfg.Jira.Token
+	}
 	client := confluence.NewClient(confluence.ClientConfig{
 		BaseURL: cfg.Confluence.BaseURL,
-		User:    cfg.Jira.User,
-		Token:   cfg.Jira.Token,
+		User:    confUser,
+		Token:   confToken,
 		IsCloud: cfg.Confluence.Cloud,
 	})
 
