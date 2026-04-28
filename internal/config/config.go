@@ -50,14 +50,38 @@ type QualityConfig struct {
 }
 
 type JiraConfig struct {
-	BaseURL         string            `yaml:"base_url"`
-	User            string            `yaml:"user"`
-	Token           string            `yaml:"token"`
+	BaseURL string `yaml:"base_url"`
+	User    string `yaml:"user"`
+	Token   string `yaml:"token"`
+	// BoardID is the legacy single-board field kept for backward compat.
+	// New configs should prefer board_ids (a list) so the poller can watch
+	// multiple projects at once. ResolveBoardIDs merges both.
 	BoardID         int               `yaml:"board_id"`
+	BoardIDs        []int             `yaml:"board_ids"`
 	PollIntervalSec int               `yaml:"poll_interval_sec"`
 	AgentFieldID    string            `yaml:"agent_field_id"`
 	StatusMapping   map[string]string `yaml:"status_mapping"`
 	Cloud           bool              `yaml:"cloud"`
+}
+
+// ResolveBoardIDs returns the deduped union of BoardID + BoardIDs, preserving
+// order with BoardID first when present. Empty result means no board is
+// configured — callers must error out.
+func (j JiraConfig) ResolveBoardIDs() []int {
+	seen := make(map[int]bool)
+	var out []int
+	if j.BoardID > 0 {
+		seen[j.BoardID] = true
+		out = append(out, j.BoardID)
+	}
+	for _, id := range j.BoardIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 type ConfluenceConfig struct {

@@ -29,7 +29,8 @@ var jiraPollCmd = &cobra.Command{
 
 The poller does two things on independent schedules:
   - Sprint cycle: detects new tasks, posts agent suggestions, detects task
-    iteration regressions (status done -> active again).
+    iteration regressions (status done -> active again). Polls every board
+    in jira.board_id (single, legacy) and jira.board_ids (list).
   - Bug-link cycle: searches recently-created Jira Bug tickets, links them
     back to the run that caused them via "is caused by" links or
     "caused_by:<runid>" description tags. Emits bug.filed events.
@@ -61,8 +62,9 @@ func runJiraPoll(cmd *cobra.Command, args []string) error {
 	if cfg.Jira.BaseURL == "" {
 		return fmt.Errorf("jira not configured (set jira.base_url in config.yaml)")
 	}
-	if cfg.Jira.BoardID == 0 {
-		return fmt.Errorf("jira.board_id missing — required for sprint cycle")
+	boardIDs := cfg.Jira.ResolveBoardIDs()
+	if len(boardIDs) == 0 {
+		return fmt.Errorf("jira.board_id (or board_ids) missing — required for sprint cycle")
 	}
 
 	dbPath, err := config.DBPath()
@@ -95,7 +97,7 @@ func runJiraPoll(cmd *cobra.Command, args []string) error {
 
 	poller := jira.NewPoller(jira.PollerConfig{
 		Client:          client,
-		BoardID:         cfg.Jira.BoardID,
+		BoardIDs:        boardIDs,
 		Interval:        time.Duration(jiraPollInterval) * time.Second,
 		BugLinkInterval: bugInterval,
 		LocalDB:         localDB,

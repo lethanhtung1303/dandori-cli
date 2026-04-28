@@ -17,16 +17,16 @@ import (
 const bugLinkScanWindow = "30d"
 
 type Poller struct {
-	client            *Client
-	boardID           int
-	interval          time.Duration
-	bugLinkInterval   time.Duration
-	lastIssueSet      map[string]bool
-	pendingSuggests   map[string]pendingSuggest
-	onNewTask         func(Issue)
-	onAssigned        func(Issue)
-	onSuggestAgent    func(Issue) (agentName string, score int, reason string)
-	reminderAfter     time.Duration
+	client          *Client
+	boardIDs        []int
+	interval        time.Duration
+	bugLinkInterval time.Duration
+	lastIssueSet    map[string]bool
+	pendingSuggests map[string]pendingSuggest
+	onNewTask       func(Issue)
+	onAssigned      func(Issue)
+	onSuggestAgent  func(Issue) (agentName string, score int, reason string)
+	reminderAfter   time.Duration
 
 	localDB  *db.LocalDB
 	recorder *event.Recorder
@@ -39,8 +39,11 @@ type pendingSuggest struct {
 }
 
 type PollerConfig struct {
-	Client         *Client
+	Client *Client
+	// BoardID is the legacy single-board configuration. New code should use
+	// BoardIDs to watch multiple boards at once. NewPoller merges both.
 	BoardID        int
+	BoardIDs       []int
 	Interval       time.Duration
 	OnNewTask      func(Issue)
 	OnAssigned     func(Issue)
@@ -74,9 +77,11 @@ func NewPoller(cfg PollerConfig) *Poller {
 		bugLinkInterval = time.Hour
 	}
 
+	boardIDs := mergeBoardIDs(cfg.BoardID, cfg.BoardIDs)
+
 	return &Poller{
 		client:          cfg.Client,
-		boardID:         cfg.BoardID,
+		boardIDs:        boardIDs,
 		interval:        interval,
 		bugLinkInterval: bugLinkInterval,
 		lastIssueSet:    make(map[string]bool),
@@ -90,9 +95,28 @@ func NewPoller(cfg PollerConfig) *Poller {
 	}
 }
 
+// mergeBoardIDs deduplicates and orders board IDs, with the legacy single
+// BoardID field placed first when present.
+func mergeBoardIDs(single int, list []int) []int {
+	seen := make(map[int]bool)
+	var out []int
+	if single > 0 {
+		seen[single] = true
+		out = append(out, single)
+	}
+	for _, id := range list {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
 func (p *Poller) Run(ctx context.Context) error {
 	slog.Info("jira poller started",
-		"board_id", p.boardID,
+		"board_ids", p.boardIDs,
 		"interval", p.interval,
 		"bug_link_interval", p.bugLinkInterval,
 	)
@@ -127,18 +151,33 @@ func (p *Poller) Run(ctx context.Context) error {
 }
 
 func (p *Poller) Poll(ctx context.Context) error {
-	sprint, err := p.client.GetActiveSprint(p.boardID)
-	if err != nil {
-		return err
-	}
-	if sprint == nil {
-		slog.Debug("no active sprint")
-		return nil
+	if len(p.boardIDs) == 0 {
+		return fmt.Errorf("no board IDs configured")
 	}
 
-	issues, err := p.client.GetSprintIssues(sprint.ID)
-	if err != nil {
-		return err
+	// Aggregate issues across every configured board so multi-project setups
+	// don't leave any sprint invisible (Bug #4). Per-board failures must NOT
+	// block the rest — log and continue.
+	var issues []Issue
+	for _, boardID := range p.boardIDs {
+		sprint, err := p.client.GetActiveSprint(boardID)
+		if err != nil {
+			slog.Warn("get active sprint failed", "board_id", boardID, "error", err)
+			continue
+		}
+		if sprint == nil {
+			slog.Debug("no active sprint", "board_id", boardID)
+			continue
+		}
+		boardIssues, err := p.client.GetSprintIssues(sprint.ID)
+		if err != nil {
+			slog.Warn("get sprint issues failed", "board_id", boardID, "sprint_id", sprint.ID, "error", err)
+			continue
+		}
+		issues = append(issues, boardIssues...)
+	}
+	if len(issues) == 0 {
+		return nil
 	}
 
 	currentSet := make(map[string]bool)

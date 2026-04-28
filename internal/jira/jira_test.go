@@ -461,14 +461,38 @@ func TestPollerNewPoller(t *testing.T) {
 		Interval: 60 * time.Second,
 	})
 
-	if poller.boardID != 42 {
-		t.Errorf("boardID = %d, want 42", poller.boardID)
+	if len(poller.boardIDs) != 1 || poller.boardIDs[0] != 42 {
+		t.Errorf("boardIDs = %v, want [42]", poller.boardIDs)
 	}
 	if poller.interval != 60*time.Second {
 		t.Errorf("interval = %v, want 60s", poller.interval)
 	}
 	if poller.lastIssueSet == nil {
 		t.Error("lastIssueSet should be initialized")
+	}
+}
+
+func TestNewPoller_MergesBoardIDAndBoardIDs(t *testing.T) {
+	// Single + list should dedupe and put the legacy single field first.
+	poller := NewPoller(PollerConfig{
+		BoardID:  3,
+		BoardIDs: []int{4, 3, 5},
+	})
+	want := []int{3, 4, 5}
+	if len(poller.boardIDs) != len(want) {
+		t.Fatalf("boardIDs = %v, want %v", poller.boardIDs, want)
+	}
+	for i, v := range want {
+		if poller.boardIDs[i] != v {
+			t.Errorf("boardIDs[%d] = %d, want %d", i, poller.boardIDs[i], v)
+		}
+	}
+}
+
+func TestNewPoller_BoardIDsOnly(t *testing.T) {
+	poller := NewPoller(PollerConfig{BoardIDs: []int{7, 8}})
+	if len(poller.boardIDs) != 2 || poller.boardIDs[0] != 7 || poller.boardIDs[1] != 8 {
+		t.Errorf("boardIDs = %v, want [7 8]", poller.boardIDs)
 	}
 }
 

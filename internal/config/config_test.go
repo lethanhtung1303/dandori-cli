@@ -131,3 +131,30 @@ func TestLoadNonExistent(t *testing.T) {
 		t.Errorf("expected default config, got %s", cfg.ServerURL)
 	}
 }
+
+func TestJiraConfig_ResolveBoardIDs(t *testing.T) {
+	tests := []struct {
+		name string
+		j    JiraConfig
+		want []int
+	}{
+		{"empty", JiraConfig{}, nil},
+		{"single legacy", JiraConfig{BoardID: 3}, []int{3}},
+		{"list only", JiraConfig{BoardIDs: []int{4, 5}}, []int{4, 5}},
+		{"merged dedupe", JiraConfig{BoardID: 3, BoardIDs: []int{4, 3, 5}}, []int{3, 4, 5}},
+		{"ignores zero/negative", JiraConfig{BoardID: 0, BoardIDs: []int{4, -1, 0, 5}}, []int{4, 5}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.j.ResolveBoardIDs()
+			if len(got) != len(tt.want) {
+				t.Fatalf("len = %d, want %d (got %v want %v)", len(got), len(tt.want), got, tt.want)
+			}
+			for i, v := range tt.want {
+				if got[i] != v {
+					t.Errorf("[%d] = %d, want %d", i, got[i], v)
+				}
+			}
+		})
+	}
+}
