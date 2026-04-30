@@ -1,6 +1,6 @@
 package db
 
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 const SchemaSQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -93,6 +93,19 @@ CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_events_synced ON events(synced) WHERE synced = 0;
 CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_quality_run ON quality_metrics(run_id);
+
+CREATE TABLE IF NOT EXISTS metric_snapshots (
+    id TEXT PRIMARY KEY,
+    team TEXT,
+    format TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_snap_team_window ON metric_snapshots(team, window_end);
+CREATE INDEX IF NOT EXISTS idx_events_type_run ON events(event_type, run_id);
 `
 
 // Migration from v1 to v2: add quality_metrics table
@@ -126,8 +139,8 @@ INSERT OR REPLACE INTO schema_version (version) VALUES (2);
 `
 
 // Migration v2→v3:
-//   * add engineer_name + department columns
-//   * relax runs.agent_name from NOT NULL → NULL (blog leaderboard needs
+//   - add engineer_name + department columns
+//   - relax runs.agent_name from NOT NULL → NULL (blog leaderboard needs
 //     human-only rows where agent_name IS NULL)
 //
 // SQLite cannot ALTER COLUMN, so we rebuild the table. All other columns
