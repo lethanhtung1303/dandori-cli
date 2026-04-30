@@ -1,0 +1,6 @@
+{"type":"user","message":{"content":[{"type":"text","text":"Fix the bug in the parser"}]}}
+{this is not valid json at all!!!
+{"type":"assistant","message":{"content":[{"type":"text","text":"I will investigate the parser bug now."},{"type":"tool_use","id":"tu_001","name":"Read","input":{"file_path":"parser.go"}}]}}
+{"type":"user","message":{"content":null}}
+ANOTHER_BAD_LINE_WITH_NO_BRACES
+{"type":"assistant","message":{"content":[{"type":"text","text":"Parser bug fixed. The off-by-one error in the token scanner has been corrected and all tests pass."}]}}

@@ -48,3 +48,17 @@ type SkillEvent struct {
 	Action  string `json:"action,omitempty"`
 	Details any    `json:"details,omitempty"`
 }
+
+// Layer-4 semantic event types (G8 Intent Preservation).
+const (
+	// EventTypeIntentExtracted is emitted once per run with the parsed intent:
+	// first user message and final assistant summary.
+	EventTypeIntentExtracted = "intent.extracted"
+
+	// EventTypeAgentReasoning is emitted for each reasoning block found in the
+	// session (thinking parts + narrative text before tool use). Capped at 10/run.
+	EventTypeAgentReasoning = "agent.reasoning"
+
+	// EventTypeDecisionPoint is reserved for Phase 2 decision detection.
+	EventTypeDecisionPoint = "decision.point"
+)

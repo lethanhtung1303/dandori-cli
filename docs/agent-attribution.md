@@ -68,3 +68,8 @@ sqlite3 ~/.dandori/local.db \
 ```
 
 Attribution is computed automatically by `dandori task run` and `dandori task done` BEFORE the Jira transition, so by the time a ticket lands in Done, the row is already written. Compute failures are non-fatal — observability must never block the Jira move.
+
+## See Also
+
+- [Intent Preservation (G8)](intent-preservation.md) — captures *why* the agent ran: first user message, design decisions, spec links
+- [DORA + Rework Rate Export (G6)](metric-export.md) — 5 engineering metrics, 3 wire formats

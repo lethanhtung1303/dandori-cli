@@ -92,3 +92,8 @@ Default OFF — without the flag the output is byte-for-byte identical to v0.5.0
 | `session_outcomes` | merged histogram of `session_end_reason` (`agent_finished`, `user_interrupted`, `error`) |
 
 Insufficient data semantics match v0.5.0: zero rows in window → block is `null` and `task_attribution` is added to `data_quality.insufficient_data`. In `oobeya`, the block is nested under `layers.productivity.task_attribution`.
+
+## See Also
+
+- [Agent Attribution (G7)](agent-attribution.md) — line-level blame + intervention classifier
+- [Intent Preservation (G8)](intent-preservation.md) — captures *why* the agent ran: first user message, design decisions, spec links

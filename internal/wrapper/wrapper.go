@@ -16,6 +16,7 @@ import (
 
 	"github.com/phuc-nt/dandori-cli/internal/db"
 	"github.com/phuc-nt/dandori-cli/internal/event"
+	"github.com/phuc-nt/dandori-cli/internal/intent"
 	"github.com/phuc-nt/dandori-cli/internal/model"
 	"github.com/phuc-nt/dandori-cli/internal/quality"
 	"github.com/phuc-nt/dandori-cli/internal/util"
@@ -227,6 +228,12 @@ func Run(ctx context.Context, localDB *db.LocalDB, opts Options) (*Result, error
 
 	emitIterationEndIfApplicable(localDB, runID)
 
+	// G8: parse JSONL transcript for intent + reasoning signals. Fail-soft —
+	// intent extraction must never interrupt a completed run.
+	if logPath := GetSessionLogPath(cwd, sessionSnapshot); logPath != "" {
+		runIntentExtraction(localDB, runID, logPath, cwd, jiraKey)
+	}
+
 	// Quality snapshot after and store metrics
 	var qualityAfter *quality.Snapshot
 	if qualityCollector != nil && qualityBefore != nil {
@@ -300,6 +307,67 @@ func emitIterationEndIfApplicable(localDB *db.LocalDB, runID string) {
 	if err := recorder.RecordEvent(runID, model.LayerSemantic, "task.iteration.end", endPayload); err != nil {
 		slog.Warn("iteration end: record event", "error", err)
 	}
+}
+
+// runIntentExtraction calls the G8 intent extractor after run completion and
+// persists the results as Layer-4 semantic events. Errors are logged at Warn
+// and swallowed — tracking must never break a finished run.
+//
+// cwd is the working directory for spec-file scanning (Phase 3).
+// jiraKey is the Jira issue key already stored on the run (back-pointer).
+func runIntentExtraction(localDB *db.LocalDB, runID, logPath, cwd, jiraKey string) {
+	res, err := intent.Extract(logPath, runID, cwd, jiraKey)
+	if err != nil {
+		slog.Warn("intent extraction failed", "run_id", runID, "error", err)
+		return
+	}
+	if res.FirstUserMsg == "" && res.Summary == "" && len(res.Reasoning) == 0 {
+		return
+	}
+
+	recorder := event.NewRecorder(localDB)
+
+	intentPayload := map[string]any{
+		"first_user_msg": res.FirstUserMsg,
+		"summary":        res.Summary,
+		"spec_links":     res.SpecLinks,
+	}
+	if err := recorder.RecordEvent(runID, model.LayerSemantic, model.EventTypeIntentExtracted, intentPayload); err != nil {
+		slog.Warn("intent: record intent.extracted failed", "run_id", runID, "error", err)
+	}
+
+	for i, rb := range res.Reasoning {
+		payload := map[string]any{
+			"index":  i,
+			"source": rb.Source,
+			"text":   rb.Text,
+		}
+		if err := recorder.RecordEvent(runID, model.LayerSemantic, model.EventTypeAgentReasoning, payload); err != nil {
+			slog.Warn("intent: record agent.reasoning failed", "run_id", runID, "index", i, "error", err)
+		}
+	}
+
+	// G8 Phase 2: emit decision.point events for each heuristic detection.
+	// These are advisory — incident-report (P5) will tag them as heuristic so
+	// consumers know not to over-trust. Failures are logged and swallowed.
+	for i, d := range res.Decisions {
+		payload := map[string]any{
+			"chosen":        d.Chosen,
+			"rejected":      d.Rejected,
+			"rationale":     d.Rationale,
+			"ts_offset_sec": d.TsOffsetSec,
+		}
+		if err := recorder.RecordEvent(runID, model.LayerSemantic, model.EventTypeDecisionPoint, payload); err != nil {
+			slog.Warn("intent: record decision.point failed", "run_id", runID, "index", i, "error", err)
+		}
+	}
+
+	slog.Debug("intent events persisted",
+		"run_id", runID,
+		"reasoning_blocks", len(res.Reasoning),
+		"decisions", len(res.Decisions),
+		"confluence_urls", len(res.SpecLinks.ConfluenceURLs),
+	)
 }
 
 func getGitHead() string {

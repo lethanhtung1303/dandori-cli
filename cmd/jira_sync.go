@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/phuc-nt/dandori-cli/internal/db"
 	"github.com/phuc-nt/dandori-cli/internal/jira"
@@ -90,8 +91,8 @@ func runJiraSync(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Add completion comment
-		comment := formatRunComment(run)
+		// Add completion comment (G8: include intent sections when available).
+		comment := formatRunCommentWithStore(run, store)
 		if err := jiraClient.AddComment(run.JiraIssueKey, comment); err != nil {
 			slog.Warn("add comment failed", "task", run.JiraIssueKey, "error", err)
 		}
@@ -126,6 +127,15 @@ func statusToJira(status string) string {
 }
 
 func formatRunComment(run db.SyncableRun) string {
+	return formatRunCommentWithStore(run, nil)
+}
+
+// formatRunCommentWithStore builds the Jira wiki-markup comment for a finished
+// run. When store is non-nil it queries G8 intent events and appends the
+// ### Intent and ### Key Decisions sections. Passing nil store (or when the
+// query fails) produces the same output as the legacy v0.5.0 format — the
+// caller is never blocked.
+func formatRunCommentWithStore(run db.SyncableRun, store *db.LocalDB) string {
 	var sb strings.Builder
 
 	if run.Status == "done" {
@@ -145,5 +155,86 @@ func formatRunComment(run db.SyncableRun) string {
 		sb.WriteString("\n_Run failed - may need manual intervention._")
 	}
 
+	// G8: append intent + decision sections when store is available.
+	if store != nil {
+		appendG8Sections(&sb, store, run.ID)
+	}
+
 	return sb.String()
+}
+
+// appendG8Sections queries layer-4 G8 events for runID and appends the
+// ### Intent and ### Key Decisions blocks to sb. It is fail-soft: any error
+// is logged at Warn and no partial sections are written.
+func appendG8Sections(sb *strings.Builder, store *db.LocalDB, runID string) {
+	events, err := store.GetIntentEvents(runID)
+	if err != nil {
+		slog.Warn("g8: query intent events failed — skipping intent sections",
+			"run_id", runID, "error", err)
+		return
+	}
+	if events.Intent == nil {
+		// Legacy run or intent extraction disabled — skip both sections.
+		return
+	}
+
+	sb.WriteString("\n\n")
+	sb.WriteString("h3. Intent\n")
+
+	firstMsg := truncateJira(events.Intent.FirstUserMsg, 400)
+	if firstMsg != "" {
+		sb.WriteString(fmt.Sprintf("{quote}%s{quote}\n", firstMsg))
+	}
+
+	summary := truncateJira(events.Intent.Summary, 400)
+	if summary != "" {
+		sb.WriteString(fmt.Sprintf("*Summary:* %s\n", summary))
+	}
+
+	// Spec links: Jira back-pointer + Confluence URLs.
+	specParts := buildSpecLine(events.Intent.SpecLinks)
+	if specParts != "" {
+		sb.WriteString(fmt.Sprintf("*Specs:* %s\n", specParts))
+	}
+
+	// Key Decisions section — only when decisions are present.
+	if len(events.Decisions) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString("h3. Key Decisions\n")
+		for i, d := range events.Decisions {
+			sb.WriteString(fmt.Sprintf("%d. *Chose:* %s\n", i+1, d.Chosen))
+			if len(d.Rejected) > 0 {
+				sb.WriteString(fmt.Sprintf("   *Over:* %s\n", strings.Join(d.Rejected, ", ")))
+			}
+			if r := truncateJira(d.Rationale, 200); r != "" {
+				sb.WriteString(fmt.Sprintf("   _Reason: %s_ _(heuristic)_\n", r))
+			} else {
+				sb.WriteString("   _(heuristic)_\n")
+			}
+		}
+	}
+}
+
+// buildSpecLine constructs the spec reference line from SpecLinks.
+// Returns "" when there is nothing to show.
+func buildSpecLine(sl db.IntentSpecLinks) string {
+	var parts []string
+	if sl.JiraKey != "" {
+		parts = append(parts, sl.JiraKey)
+	}
+	for _, u := range sl.ConfluenceURLs {
+		parts = append(parts, fmt.Sprintf("[Confluence|%s]", u))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// truncateJira truncates s to at most maxChars Unicode code points.
+// If truncated, an ellipsis is appended. Returns the original string when it
+// is already within the limit.
+func truncateJira(s string, maxChars int) string {
+	if utf8.RuneCountInString(s) <= maxChars {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:maxChars]) + "…"
 }

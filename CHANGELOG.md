@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-30
+
+Intent preservation: captures why an agent ran (G8). Sub-30-minute RCA without reading the full transcript.
+
+### Added — Intent preservation (G8)
+
+Three new Layer-4 semantic events written after every `dandori run` completes:
+
+- **`intent.extracted`** — first human message, final agent summary, spec back-links (Jira key + Confluence URLs from cwd files). One event per run.
+- **`decision.point`** — heuristic-detected design choices (`chosen`, `rejected[]`, `rationale`). Capped at 5/run; tagged advisory in all output surfaces.
+- **`agent.reasoning`** — reasoning snippets (`thinking` blocks + narrative text before tool use). Capped at 10/run, 1 KB each.
+
+Additional changes:
+
+- **`dandori incident-report --run <id>`** — single-run markdown report with Intent, Key Decisions, Reasoning Trace, Diff Stats, Tool Usage, Quality sections.
+- **`dandori incident-report --task <key>`** — multi-run aggregation across all runs for a Jira task: cross-run summary + per-run blocks.
+- **Jira completion comment extension** (`jira-sync`) — when `intent.extracted` exists for a run, the comment gains `h3. Intent` and `h3. Key Decisions` sections. Falls back silently to pre-G8 format for legacy runs.
+- **Env gate** `DANDORI_INTENT_DISABLED=1` — skips all extraction; no Layer-4 events written; Jira comment and incident report render without G8 sections.
+- See [`docs/intent-preservation.md`](docs/intent-preservation.md) for event schema, heuristic limitations, privacy notes, and v2 roadmap.
+
+### Fixed
+
+- **Redact regex false-positives** — generic secret pattern previously matched prose like "password hashing" or "reset the user token" because it allowed any whitespace between keyword and value. Now requires explicit assignment delimiter (`=`, `:`) or quoted JSON form. Real assignments (`password=hunter2`, `{"token": "abc"}`) still redacted; documentation/spec text preserved.
+
 ## [0.5.0] — 2026-04-30
 
 Enterprise measurement layer: DORA + Rework Rate exporter (G6) and agent contribution attribution (G7), plus a critical `go-build*` temp-dir leak hotfix.

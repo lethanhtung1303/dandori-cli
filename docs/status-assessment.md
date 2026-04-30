@@ -1,6 +1,6 @@
 # dandori-cli Status Assessment
 
-> Last updated: 2026-04-30 (v0.5.0)
+> Last updated: 2026-04-30 (v0.6.0)
 
 ## Vision vs Reality
 
@@ -32,6 +32,7 @@
 - DORA + Rework Rate exporter (G6, v0.5.0)
 - Agent contribution attribution (G7, v0.5.0)
 - `dandori clean` for `go-build*` temp-dir remediation (v0.5.0)
+- Intent preservation (G8, v0.6.0) — 3 event types + `dandori incident-report` + Jira G8 sections
 
 ## 5 Pillars Assessment
 
@@ -88,6 +89,7 @@
 | v0.3.0 | 2026-04-19 | Quality metrics, agent comparison, lint/test delta |
 | v0.4.0 | 2026-04-28 | Pre-sync verify gate, Layer-3 tracking, composite KPIs |
 | v0.5.0 | 2026-04-30 | DORA + Rework Rate exporter (G6), agent contribution attribution (G7), `go-build*` leak hotfix |
+| v0.6.0 | 2026-04-30 | Intent preservation (G8) — `intent.extracted`, `decision.point`, `agent.reasoning` events + `dandori incident-report` command + Jira G8 comment sections |
 
 ## Known Gaps
 
@@ -99,19 +101,19 @@
 | Multi-agent orchestration (G1) | P1 | 16h | Codex/Copilot: pricing + session parser + side-by-side compare |
 | Context inheritance (G2) | P2 | 8h | parent_run_id + per-ticket aggregation |
 | Skill library (G3) | P3 | 24h | Layer-3 already tracks tools; need registry + sharing convention |
-| Homebrew tap (G4) | P3 | 30m | Missing `HOMEBREW_TAP_TOKEN` GH secret |
+| Homebrew tap (G4) | ✅ resolved | — | PAT + `phuc-nt/homebrew-dandori` tap bootstrapped 2026-04-30 |
 | Jira/Confluence DC (G5) | P2 | — | Tùng owns branch `feat/jira-confluence-datacenter` |
-| Intent preservation (G8) | P1 | — | Moat — link runs to spec/intent, sub-30min RCA |
+| Intent preservation (G8) | ✅ resolved | — | Shipped v0.6.0 — 3 event types, incident-report cmd, Jira G8 sections |
 | Spec-Driven Development (G7-old) | P2 | — | Spec template injected into agent context |
 
 ## Summary
 
-**dandori-cli hoàn thành ~97% vision** của outer harness cho scope CLI pilot, cộng enterprise measurement layer (G6+G7 ship v0.5.0).
+**dandori-cli hoàn thành ~99% vision** của outer harness cho scope CLI pilot, cộng enterprise measurement layer (G6+G7 v0.5.0) và intent preservation (G8 v0.6.0).
 
-- ✅ All 8 phases done + verify gate + DORA + attribution
+- ✅ All 8 phases done + verify gate + DORA + attribution + intent preservation
 - ✅ 5/5 business questions answerable + DORA-grounded leadership questions
-- ✅ v0.5.0 published — đo được human + agent productivity ở enterprise scale
-- ⚠️ Còn 6 gap (G1 multi-agent, G2 context inheritance, G3 skill, G4 brew, G5 DC, G7-SDD/G8-intent) — backlog trong [`plans/260429-0000-future-roadmap`](../../plans/260429-0000-future-roadmap/plan.md)
+- ✅ v0.6.0 published — full session intent + RCA via `dandori incident-report`
+- ⚠️ Còn 4 gap (G1 multi-agent, G2 context inheritance, G3 skill, G5 DC, G7-new SDD) — backlog trong [`plans/260429-0000-future-roadmap`](../../plans/260429-0000-future-roadmap/plan.md)
 
 ## Architecture
 
@@ -152,5 +154,6 @@
 2. ✅ **Pre-sync verify gate** — shipped v0.4.0 (semantic + quality check warn-mode).
 3. ✅ **DORA + Rework Rate exporter (G6)** — shipped v0.5.0.
 4. ✅ **Agent contribution attribution (G7)** — shipped v0.5.0.
-5. **G7 v1 fixes validation** — 1-week-out check on UTC normalize + no-commit warning ([`plans/260430-1149-g7-followup-validation`](../../plans/260430-1149-g7-followup-validation/plan.md)).
-6. **Pick next gap** from backlog (G1 multi-agent vs G8 intent preservation as primary candidates).
+5. ✅ **Intent preservation (G8)** — shipped v0.6.0.
+6. **G7 v1 fixes validation** — 1-week-out check on UTC normalize + no-commit warning ([`plans/260430-1149-g7-followup-validation`](../../plans/260430-1149-g7-followup-validation/plan.md)).
+7. **Pick next gap** from backlog (G1 multi-agent, G2 context inheritance, G3 skill).
