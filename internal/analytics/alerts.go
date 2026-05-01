@@ -12,7 +12,7 @@ type RunStat struct {
 // Alert is one threshold breach message.
 // Kind/DrilldownURL are populated for dashboard surfacing; CLI ignores them.
 type Alert struct {
-	Kind         string `json:"kind"` // "cost_multiple" or "ac_dip"
+	Kind         string `json:"kind"`     // "cost_multiple" or "ac_dip"
 	Severity     string `json:"severity"` // "warn" for now
 	Message      string `json:"message"`
 	DrilldownURL string `json:"drilldown_url,omitempty"`

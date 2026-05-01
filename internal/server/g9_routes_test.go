@@ -169,7 +169,7 @@ func TestG9DORA_ProjectScope_ReturnsProjectSnapshot(t *testing.T) {
 
 	orgPayload := `{"deploy_frequency":{"value":1.0,"unit":"per day","rating":"high"}}`
 	projPayload := `{"deploy_frequency":{"value":4.2,"unit":"per day","rating":"elite"}}`
-	seedSnapshot(t, store, 2.0, orgPayload)               // team=""
+	seedSnapshot(t, store, 2.0, orgPayload)                    // team=""
 	seedProjectSnapshot(t, store, "CLITEST", 1.0, projPayload) // team="CLITEST"
 
 	mux := newG9Mux(store)
@@ -627,9 +627,9 @@ func TestG9Iterations_ReturnsIterationCounts_NotDuration(t *testing.T) {
 		extraIter int // number of task.iteration.start events to seed beyond round 1
 	}
 	seeds := []taskSeed{
-		{"CLITEST-1", "iter-r1", 7200, 0},  // round_count=1, large duration (would be >2h in old)
-		{"CLITEST-2", "iter-r2", 30, 1},    // round_count=2, tiny duration
-		{"CLITEST-3", "iter-r3", 1800, 4},  // round_count=5, mid duration
+		{"CLITEST-1", "iter-r1", 7200, 0}, // round_count=1, large duration (would be >2h in old)
+		{"CLITEST-2", "iter-r2", 30, 1},   // round_count=2, tiny duration
+		{"CLITEST-3", "iter-r3", 1800, 4}, // round_count=5, mid duration
 	}
 	for _, s := range seeds {
 		_, err := store.Exec(`

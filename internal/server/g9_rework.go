@@ -21,7 +21,8 @@ const reworkAlertThreshold = 0.10
 // handleG9Rework handles GET /api/g9/rework.
 // Query: ?scope=org|project, ?id=<jira-key-prefix>, ?period=<days> (default 28).
 // Response: {rate, total, rework, exceeds_threshold, period_days,
-//            wow_delta_pp, prior_rate, empty}.
+//
+//	wow_delta_pp, prior_rate, empty}.
 func handleG9Rework(store *db.LocalDB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

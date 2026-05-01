@@ -75,13 +75,13 @@ func handleG9DORAHistory(store *db.LocalDB) http.HandlerFunc {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"dates":           dates,
-			"deploy_freq":     deploy,
-			"lead_time":       lead,
-			"change_failure":  cfr,
-			"mttr":            mttr,
-			"count":           len(snaps),
-			"insufficient":    false,
+			"dates":          dates,
+			"deploy_freq":    deploy,
+			"lead_time":      lead,
+			"change_failure": cfr,
+			"mttr":           mttr,
+			"count":          len(snaps),
+			"insufficient":   false,
 		})
 	}
 }

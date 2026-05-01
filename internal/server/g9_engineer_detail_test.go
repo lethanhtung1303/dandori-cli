@@ -165,11 +165,11 @@ func TestG9Engineer_KPIStrip_BasicAggregates(t *testing.T) {
 	}
 	var resp struct {
 		KPI7d struct {
-			Cost7d         float64 `json:"cost_7d"`
-			Runs7d         int     `json:"runs_7d"`
-			Interventions7d int    `json:"interventions_7d"`
-			AutonomyPct    float64 `json:"autonomy_pct"`
-			SuccessPct     float64 `json:"success_pct"`
+			Cost7d          float64 `json:"cost_7d"`
+			Runs7d          int     `json:"runs_7d"`
+			Interventions7d int     `json:"interventions_7d"`
+			AutonomyPct     float64 `json:"autonomy_pct"`
+			SuccessPct      float64 `json:"success_pct"`
 		} `json:"kpi_7d"`
 		Empty bool `json:"empty"`
 	}

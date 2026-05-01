@@ -381,7 +381,9 @@ const dashboardHTML = `<!DOCTYPE html>
         .dora-metric {
             background: var(--bg-primary); border: 1px solid var(--border);
             border-radius: var(--radius); padding: 16px; text-align: center;
+            min-width: 0; /* allow grid item to shrink below intrinsic content size */
         }
+        .dora-spark-wrap { min-width: 0; max-width: 100%; }
         .dora-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
         .dora-value { font-size: 28px; font-weight: 700; line-height: 1; }
         .dora-unit { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
@@ -513,6 +515,10 @@ const dashboardHTML = `<!DOCTYPE html>
         #runs-table tr.run-expand .expand-list li { padding: 3px 0; list-style: none; }
         #runs-table tr.run-expand .expand-empty { font-size: 12px; color: var(--text-muted); font-style: italic; }
         .project-hero-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; }
+        /* G10 P1: engineer KPI strip has 5 tiles — narrower padding fits all in one row */
+        #engineer-kpi-grid { grid-template-columns: repeat(5,1fr); }
+        #engineer-kpi-grid .hero-tile { padding: 16px 18px; }
+        #engineer-kpi-grid .hero-tile .stat-value { font-size: 24px; }
         .hero-tile {
             background: var(--bg-secondary); border: 1px solid var(--border);
             border-radius: var(--radius-lg); padding: 20px 24px;
@@ -529,8 +535,14 @@ const dashboardHTML = `<!DOCTYPE html>
         /* G9-P4b mobile responsive — viewport ≤ 768px */
         @media (max-width: 768px) {
             .project-hero-grid { grid-template-columns: 1fr; gap: 12px; }
+            #engineer-kpi-grid { grid-template-columns: repeat(2,1fr); gap: 10px; }
             .hero-tile { padding: 14px 16px; }
             .hero-tile .stat-value { font-size: 22px; }
+            .dora-grid { grid-template-columns: repeat(2,1fr); gap: 8px; }
+            .dora-metric { padding: 12px 8px; }
+            .dora-value { font-size: 22px; }
+            #mix-leaderboard-card .table-wrapper { overflow-x: auto; }
+            #mix-leaderboard-table { min-width: 480px; }
             .pill-bar { flex-wrap: wrap; }
             #project-burn-chart-wrap .chart-container { height: 180px; }
             #iteration-histogram-wrap { height: 160px; }
@@ -2107,6 +2119,15 @@ const dashboardHTML = `<!DOCTYPE html>
 
         function loadG9Panels(role) {
             role = role || getCurrentRole();
+
+            // Org-only widget visibility — must run for every role transition,
+            // before any early-return branch (project/engineer return early).
+            const orgOnlyIDs = ['mix-leaderboard-card', 'org-rework-card', 'org-alerts-banner'];
+            orgOnlyIDs.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = (role === 'org') ? '' : 'none';
+            });
+
             if (role === 'project') {
                 loadProjectView();
                 return;
@@ -2124,18 +2145,6 @@ const dashboardHTML = `<!DOCTYPE html>
                 loadG9Alerts();
                 loadG9MixLeaderboard();
                 loadG9Rework('org', '');
-                const card = document.getElementById('mix-leaderboard-card');
-                if (card) card.style.display = '';
-                const reworkCard = document.getElementById('org-rework-card');
-                if (reworkCard) reworkCard.style.display = '';
-            } else {
-                // Hide org-only widgets outside org scope.
-                const banner = document.getElementById('org-alerts-banner');
-                if (banner) banner.style.display = 'none';
-                const card = document.getElementById('mix-leaderboard-card');
-                if (card) card.style.display = 'none';
-                const reworkCard = document.getElementById('org-rework-card');
-                if (reworkCard) reworkCard.style.display = 'none';
             }
             loadG9Attribution();
             loadG9Intent();
