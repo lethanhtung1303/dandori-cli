@@ -1837,6 +1837,29 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
         /* Project view panels */
         #project-view { display: none; }
         #project-view.visible { display: block; }
+        /* G9-P4a engineer detail view */
+        #engineer-detail-view { display: none; margin-top: 16px; }
+        #engineer-detail-view.visible { display: block; }
+        #engineer-detail-view .eng-detail-header { display: flex; gap: 16px; align-items: baseline; margin-bottom: 16px; }
+        #engineer-detail-view .eng-detail-header h2 { margin: 0; font-size: 18px; color: var(--text-primary); }
+        #engineer-detail-view .eng-detail-header .eng-back { font-size: 12px; color: var(--accent); cursor: pointer; }
+        #engineer-detail-view .eng-detail-header .eng-back:hover { text-decoration: underline; }
+        #engineer-runs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        #engineer-runs-table th { text-align: left; padding: 8px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+        #engineer-runs-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-subtle, #1a1a1a); }
+        /* engineer-retention-spark sized by parent wrapper */
+        /* Engineer name links — clickable in any panel */
+        .engineer-link { color: var(--accent, #6366f1); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+        .engineer-link:hover { color: var(--text-primary); }
+        /* G9-P4a Run-row inline expand */
+        #runs-table tr.run-row { cursor: pointer; }
+        #runs-table tr.run-row:hover { background: var(--bg-secondary); }
+        #runs-table tr.run-expand td { padding: 0; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+        #runs-table tr.run-expand .expand-inner { padding: 12px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        #runs-table tr.run-expand .expand-inner h4 { margin: 0 0 8px 0; font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
+        #runs-table tr.run-expand .expand-list { font-size: 12px; color: var(--text-primary); }
+        #runs-table tr.run-expand .expand-list li { padding: 3px 0; list-style: none; }
+        #runs-table tr.run-expand .expand-empty { font-size: 12px; color: var(--text-muted); font-style: italic; }
         .project-hero-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; }
         .hero-tile {
             background: var(--bg-secondary); border: 1px solid var(--border);
@@ -2062,6 +2085,27 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                     <div class="card-body">
                         <div class="insights-grid" id="project-insights-grid">
                             <div class="loading"><div class="spinner"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- G9-P4a: Engineer detail drilldown (visible only when role=engineer) -->
+            <section id="engineer-detail-view">
+                <div class="card g9-card">
+                    <div class="eng-detail-header">
+                        <h2 id="eng-detail-name">Engineer</h2>
+                        <span class="eng-back" onclick="drillToOrg()">← back to org</span>
+                    </div>
+                    <div class="card-body">
+                        <h4 style="margin:0 0 8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">Retention sparkline (4 weekly buckets)</h4>
+                        <div style="height:80px;position:relative;"><canvas id="engineer-retention-spark"></canvas></div>
+                        <h4 style="margin:16px 0 8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">Last 50 runs</h4>
+                        <div style="overflow-x:auto;">
+                            <table id="engineer-runs-table">
+                                <thead><tr><th>ID</th><th>Issue</th><th>Agent</th><th>Status</th><th>Cost</th><th>Started</th></tr></thead>
+                                <tbody><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -2432,6 +2476,9 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
             // Project selector: show when project role but no id
             const pswrap = document.getElementById('project-selector-wrap');
             pswrap.classList.toggle('visible', role === 'project' && !id);
+            // G9-P4a: Engineer detail panel — visible when role=engineer with id.
+            const engView = document.getElementById('engineer-detail-view');
+            if (engView) engView.classList.toggle('visible', role === 'engineer' && !!id);
         }
 
         // ---- Period selector ----
@@ -2691,7 +2738,7 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                             <span class="intent-ts">${formatTime(ev.ts)}</span>
                             <span class="intent-type">${ev.event_type}</span>
                             <span class="intent-summary">${summary}</span>
-                            ${ev.engineer_name ? ` + "`" + `<span class="intent-engineer">${ev.engineer_name}</span>` + "`" + ` : ''}
+                            ${ev.engineer_name ? ` + "`" + `<span class="intent-engineer engineer-link" onclick="event.stopPropagation(); drillToEngineer('${ev.engineer_name}')">${ev.engineer_name}</span>` + "`" + ` : ''}
                         </div>
                         <div class="intent-expand">
                             <pre>${expanded}</pre>
@@ -2706,6 +2753,124 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
         function toggleIntentRow(idx) {
             const row = document.getElementById('irow-' + idx);
             if (row) row.classList.toggle('expanded');
+        }
+
+        // ---- G9-P4a: Engineer drilldown + run-row inline expand ----
+
+        // Click engineer name → drill to engineer view (URL state).
+        function drillToEngineer(name) {
+            if (!name) return;
+            updateState({role: 'engineer', id: name});
+        }
+
+        // Back link from engineer view → org view.
+        function drillToOrg() {
+            updateState({role: 'org', id: ''});
+        }
+
+        // Click any row in Recent Runs → toggle inline expand row below.
+        // First click fetches /api/g9/run/{id}/expand; subsequent clicks just toggle.
+        async function toggleRunExpand(runID, rowEl) {
+            const expRow = document.getElementById('rexp-' + runID);
+            if (!expRow) return;
+            if (expRow.style.display === 'table-row') {
+                expRow.style.display = 'none';
+                return;
+            }
+            expRow.style.display = 'table-row';
+            // Lazy-load only once.
+            const inner = expRow.querySelector('.expand-inner');
+            if (inner.dataset.loaded === '1') return;
+            inner.innerHTML = '<div class="expand-empty">Loading…</div>';
+            try {
+                const res = await fetch('/api/g9/run/' + encodeURIComponent(runID) + '/expand');
+                if (!res.ok) throw new Error('http ' + res.status);
+                const data = await res.json();
+                const iters = (data.iterations || []).map(it =>
+                    '<li>Round ' + escapeHTML(String(it.round)) +
+                    ' — ' + escapeHTML(it.issue_key || '') +
+                    ' <span style="color:var(--text-muted);">' + escapeHTML(it.transitioned_at || '') + '</span></li>'
+                ).join('');
+                const events = (data.intent_events || []).map(ev => {
+                    let summary = '';
+                    try {
+                        const parsed = ev.data || {};
+                        summary = parsed.chosen ? ('chose: ' + parsed.chosen)
+                                : (parsed.summary || parsed.first_user_msg || parsed.goal || '');
+                    } catch (_) {}
+                    return '<li><strong>' + escapeHTML(ev.event_type) + '</strong> ' +
+                        '<span style="color:var(--text-muted);">' + escapeHTML(ev.ts) + '</span>' +
+                        (summary ? ' — ' + escapeHTML(summary) : '') + '</li>';
+                }).join('');
+                inner.innerHTML =
+                    '<div><h4>Iterations (' + (data.iterations || []).length + ')</h4>' +
+                    (iters ? '<ul class="expand-list">' + iters + '</ul>' : '<div class="expand-empty">No iterations recorded</div>') +
+                    '</div>' +
+                    '<div><h4>Intent events (' + (data.intent_events || []).length + ')</h4>' +
+                    (events ? '<ul class="expand-list">' + events + '</ul>' : '<div class="expand-empty">No layer-4 events</div>') +
+                    '</div>';
+                inner.dataset.loaded = '1';
+            } catch (e) {
+                inner.innerHTML = '<div class="expand-empty">Failed to load: ' + escapeHTML(String(e)) + '</div>';
+            }
+        }
+
+        // Load engineer detail panel (50 runs + retention sparkline).
+        let engineerRetentionChart = null;
+        async function loadEngineerDetail(name) {
+            const titleEl = document.getElementById('eng-detail-name');
+            if (titleEl) titleEl.textContent = 'Engineer: ' + name;
+            try {
+                const res = await fetch('/api/g9/engineer/' + encodeURIComponent(name));
+                if (!res.ok) throw new Error('http ' + res.status);
+                const data = await res.json();
+
+                // Runs table.
+                const tbody = document.querySelector('#engineer-runs-table tbody');
+                if (!tbody) return;
+                if (!data.runs || !data.runs.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No runs for ' + escapeHTML(name) + '</td></tr>';
+                } else {
+                    tbody.innerHTML = data.runs.map(r =>
+                        '<tr>' +
+                        '<td style="font-family:monospace;color:var(--text-muted);">' + escapeHTML((r.id || '').substring(0, 8)) + '</td>' +
+                        '<td>' + (r.jira_issue_key ? createJiraLink(r.jira_issue_key) : '<span style="color:var(--text-muted);">—</span>') + '</td>' +
+                        '<td>' + escapeHTML(r.agent_name || '') + '</td>' +
+                        '<td>' + (r.status ? createStatusBadge(r.status) : '') + '</td>' +
+                        '<td class="cost">' + formatCost(r.cost_usd || 0) + '</td>' +
+                        '<td style="color:var(--text-muted);">' + formatTime(r.started_at) + '</td>' +
+                        '</tr>'
+                    ).join('');
+                }
+
+                // Retention sparkline.
+                const canvas = document.getElementById('engineer-retention-spark');
+                if (canvas && window.Chart) {
+                    if (engineerRetentionChart) { engineerRetentionChart.destroy(); engineerRetentionChart = null; }
+                    const buckets = data.retention_sparkline || [0,0,0,0];
+                    engineerRetentionChart = new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            labels: ['4w ago', '3w ago', '2w ago', '1w ago'],
+                            datasets: [{
+                                label: 'retention',
+                                data: buckets,
+                                borderColor: '#22c55e',
+                                backgroundColor: 'rgba(34,197,94,0.15)',
+                                fill: true, tension: 0.4, pointRadius: 3,
+                            }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            scales: { y: { beginAtZero: true, max: 1, ticks: { color: '#71717a', font: { size: 10 } } },
+                                      x: { ticks: { color: '#71717a', font: { size: 10 } } } },
+                            plugins: { legend: { display: false } }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('loadEngineerDetail:', e);
+            }
         }
 
         // ---- Project view ----
@@ -2910,6 +3075,14 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                 loadProjectView();
                 return;
             }
+            if (role === 'engineer') {
+                const s = readState();
+                if (s.id) loadEngineerDetail(s.id);
+                // Still load attribution/intent (filtered to this engineer via buildAPIQuery).
+                loadG9Attribution();
+                loadG9Intent();
+                return;
+            }
             if (role === 'org') {
                 loadG9DORA();
             }
@@ -3066,19 +3239,26 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                     tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No runs recorded yet</td></tr>';
                     return;
                 }
-                tbody.innerHTML = data.slice(0, 30).map(r => ` + "`" + `<tr>
-                    <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${r.ID.substring(0, 8)}</td>
-                    <td>${createJiraLink(r.JiraIssueKey)}</td>
-                    <td><div class="agent-cell">
-                        <div class="agent-avatar" style="background: ${getAgentColor(r.AgentName)}; width: 24px; height: 24px; font-size: 10px;">${getAgentInitials(r.AgentName)}</div>
-                        <span style="color: var(--text-primary);">${r.AgentName}</span>
-                    </div></td>
-                    <td>${createStatusBadge(r.Status)}</td>
-                    <td class="duration">${formatDuration(r.Duration)}</td>
-                    <td class="cost">${formatCost(r.Cost)}</td>
-                    <td style="color: var(--text-muted);">${formatNumber(r.Tokens)}</td>
-                    <td class="timestamp">${formatTime(r.StartedAt)}</td>
-                </tr>` + "`" + `).join('');
+                // G9-P4a: each run renders as a clickable row + a hidden expand row below.
+                tbody.innerHTML = data.slice(0, 30).map(r => {
+                    const safeID = r.ID;
+                    return ` + "`" + `<tr class="run-row" onclick="toggleRunExpand('${safeID}', this)">
+                        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${r.ID.substring(0, 8)}</td>
+                        <td>${createJiraLink(r.JiraIssueKey)}</td>
+                        <td><div class="agent-cell">
+                            <div class="agent-avatar" style="background: ${getAgentColor(r.AgentName)}; width: 24px; height: 24px; font-size: 10px;">${getAgentInitials(r.AgentName)}</div>
+                            <span style="color: var(--text-primary);">${r.AgentName}</span>
+                        </div></td>
+                        <td>${createStatusBadge(r.Status)}</td>
+                        <td class="duration">${formatDuration(r.Duration)}</td>
+                        <td class="cost">${formatCost(r.Cost)}</td>
+                        <td style="color: var(--text-muted);">${formatNumber(r.Tokens)}</td>
+                        <td class="timestamp">${formatTime(r.StartedAt)}</td>
+                    </tr>
+                    <tr class="run-expand" id="rexp-${safeID}" style="display:none;">
+                        <td colspan="8"><div class="expand-inner"></div></td>
+                    </tr>` + "`" + `;
+                }).join('');
             } catch (e) { console.error('loadRuns:', e); }
         }
         async function loadQualityRegression(by) {

@@ -21,6 +21,10 @@ func RegisterG9Routes(mux *http.ServeMux, store *db.LocalDB) {
 	mux.HandleFunc("/api/g9/intent", handleG9Intent(store))
 	mux.HandleFunc("/api/g9/iterations", handleG9Iterations(store))
 	mux.HandleFunc("/api/g9/insights", handleG9Insights(store))
+	// Path-parameter routes — registered with trailing slash so ServeMux does
+	// prefix dispatch; the handler parses the suffix.
+	mux.HandleFunc("/api/g9/run/", handleG9RunExpand(store))
+	mux.HandleFunc("/api/g9/engineer/", handleG9EngineerDetail(store))
 }
 
 // normalizeDoraPayload converts a raw metric export payload (which may be in
