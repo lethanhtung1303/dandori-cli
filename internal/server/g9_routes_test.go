@@ -906,6 +906,188 @@ func TestG9Alerts_CostMultipleAlert(t *testing.T) {
 	}
 }
 
+// ---- /api/g9/dora/history ----
+
+// doraPayload builds a JSON snapshot payload with the four canonical metrics
+// in their wrapped {value, unit, rating} form (mirrors what
+// `dandori metric export` emits — not bare numbers).
+func doraPayload(deploy, lead, cfr, mttr float64) string {
+	return fmt.Sprintf(`{
+		"deploy_frequency":{"value":%.3f,"unit":"per_day","rating":"medium"},
+		"lead_time":{"value":%.3f,"unit":"days","rating":"medium"},
+		"change_failure_rate":{"value":%.3f,"rating":"medium"},
+		"mttr":{"value":%.3f,"unit":"hours","rating":"medium"}
+	}`, deploy, lead, cfr, mttr)
+}
+
+// seedSnapshotAt inserts a snapshot with explicit team + age in hours.
+func seedSnapshotAt(t *testing.T, store *db.LocalDB, team string, ageHours float64, payload string) {
+	t.Helper()
+	createdAt := time.Now().Add(-time.Duration(ageHours * float64(time.Hour)))
+	start := createdAt.AddDate(0, 0, -28)
+	id := fmt.Sprintf("snap-%s-%d", team, int(ageHours*100))
+	teamVal := any(nil)
+	if team != "" {
+		teamVal = team
+	}
+	_, err := store.Exec(`
+		INSERT INTO metric_snapshots (id, team, format, window_start, window_end, payload, created_at)
+		VALUES (?, ?, 'json', ?, ?, ?, ?)
+	`,
+		id, teamVal,
+		start.UTC().Format(time.RFC3339),
+		createdAt.UTC().Format(time.RFC3339),
+		payload,
+		createdAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		t.Fatalf("seedSnapshotAt: %v", err)
+	}
+}
+
+func TestG9DORAHistory_ReturnsLast12Snapshots(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	// 15 snapshots, ages descending so we know which 12 are newest.
+	for i := 0; i < 15; i++ {
+		seedSnapshotAt(t, store, "", float64(i*24), doraPayload(float64(i+1), 2.5, 5.0, 1.0))
+	}
+	status, body := g9Get(t, mux, "/api/g9/dora/history")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var resp struct {
+		DeployFreq []float64 `json:"deploy_freq"`
+		Count      int       `json:"count"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if resp.Count != 12 {
+		t.Errorf("count=%d want 12", resp.Count)
+	}
+	if len(resp.DeployFreq) != 12 {
+		t.Errorf("deploy_freq len=%d want 12", len(resp.DeployFreq))
+	}
+}
+
+func TestG9DORAHistory_OrderedAscending(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	// 3 snapshots, ages 72h / 48h / 24h. After ascending sort, deploy_freq
+	// should match age-72h first, age-24h last.
+	seedSnapshotAt(t, store, "", 72, doraPayload(1.0, 0, 0, 0))
+	seedSnapshotAt(t, store, "", 48, doraPayload(2.0, 0, 0, 0))
+	seedSnapshotAt(t, store, "", 24, doraPayload(3.0, 0, 0, 0))
+
+	_, body := g9Get(t, mux, "/api/g9/dora/history")
+	var resp struct {
+		DeployFreq []float64 `json:"deploy_freq"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	want := []float64{1.0, 2.0, 3.0}
+	for i, v := range want {
+		if i >= len(resp.DeployFreq) || resp.DeployFreq[i] != v {
+			t.Errorf("deploy_freq[%d]=%v want %v (full %v)", i, resp.DeployFreq[i], v, resp.DeployFreq)
+		}
+	}
+}
+
+func TestG9DORAHistory_FewerThan12_ReturnsAvailable(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	for i := 0; i < 5; i++ {
+		seedSnapshotAt(t, store, "", float64(i*24), doraPayload(1, 1, 1, 1))
+	}
+	_, body := g9Get(t, mux, "/api/g9/dora/history")
+	var resp struct {
+		Count        int  `json:"count"`
+		Insufficient bool `json:"insufficient"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 5 || resp.Insufficient {
+		t.Errorf("count=%d insufficient=%v want 5/false", resp.Count, resp.Insufficient)
+	}
+}
+
+func TestG9DORAHistory_OneSnapshot_ReturnsHintFlag(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	seedSnapshotAt(t, store, "", 1, doraPayload(1, 1, 1, 1))
+	_, body := g9Get(t, mux, "/api/g9/dora/history")
+	var resp struct {
+		Count        int  `json:"count"`
+		Insufficient bool `json:"insufficient"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Insufficient || resp.Count != 1 {
+		t.Errorf("got count=%d insufficient=%v want 1/true", resp.Count, resp.Insufficient)
+	}
+}
+
+func TestG9DORAHistory_ProjectScope_FiltersByTeam(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	// 4 snapshots for project A, 4 for B; scope=project&id=A returns only A.
+	for i := 0; i < 4; i++ {
+		seedSnapshotAt(t, store, "PROJ-A", float64(i*24), doraPayload(float64(10+i), 0, 0, 0))
+		seedSnapshotAt(t, store, "PROJ-B", float64(i*24), doraPayload(float64(20+i), 0, 0, 0))
+	}
+	_, body := g9Get(t, mux, "/api/g9/dora/history?scope=project&id=PROJ-A")
+	var resp struct {
+		DeployFreq []float64 `json:"deploy_freq"`
+		Count      int       `json:"count"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 4 {
+		t.Errorf("count=%d want 4", resp.Count)
+	}
+	for _, v := range resp.DeployFreq {
+		if v < 10 || v > 13 {
+			t.Errorf("deploy_freq value %v not in PROJ-A range 10-13", v)
+		}
+	}
+}
+
+func TestG9DORAHistory_EmptySnapshots_NoError(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	status, body := g9Get(t, mux, "/api/g9/dora/history")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var resp struct {
+		Count        int  `json:"count"`
+		Insufficient bool `json:"insufficient"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Insufficient || resp.Count != 0 {
+		t.Errorf("got count=%d insufficient=%v want 0/true", resp.Count, resp.Insufficient)
+	}
+}
+
 func TestG9Alerts_DrilldownURL(t *testing.T) {
 	store := setupG9DB(t)
 	defer store.Close()

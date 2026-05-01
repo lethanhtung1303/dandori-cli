@@ -1385,10 +1385,85 @@ const dashboardHTML = `<!DOCTYPE html>
                         <div class="dora-value">${f.fmt(val)}</div>
                         <div class="dora-unit">${f.unit(val)}</div>
                         ${rating ? ` + "`" + `<span class="dora-rating ${ratingClass}">${rating}</span>` + "`" + ` : ''}
+                        <div class="dora-spark-wrap" style="height:32px;margin-top:6px;"><canvas class="dora-spark" data-metric="${f.key}"></canvas></div>
                     </div>` + "`" + `;
                 }).join('');
+                loadG9DORAHistory('org', '');
             } catch (e) {
                 console.error('loadG9DORA:', e);
+            }
+        }
+
+        // Sparkline color rules: deploy_freq up = good (green); the other 3
+        // metrics are lower-is-better, so falling trend = green, rising = red.
+        const doraTrendDirection = {
+            deploy_frequency: 'up',
+            lead_time: 'down',
+            change_failure_rate: 'down',
+            mttr: 'down',
+        };
+        // dataset key → API field name (history endpoint vs DORA tile keys differ).
+        const doraSparkKey = {
+            deploy_frequency: 'deploy_freq',
+            lead_time: 'lead_time',
+            change_failure_rate: 'change_failure',
+            mttr: 'mttr',
+        };
+        const doraSparkCharts = {};
+
+        async function loadG9DORAHistory(scope, id) {
+            try {
+                const url = '/api/g9/dora/history?scope=' + encodeURIComponent(scope || 'org') +
+                    (id ? '&id=' + encodeURIComponent(id) : '');
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+                const containerSel = scope === 'project' ? '#proj-dora-grid' : '#dora-grid';
+                const container = document.querySelector(containerSel);
+                if (!container) return;
+
+                if (data.insufficient) {
+                    container.querySelectorAll('.dora-spark-wrap').forEach(el => {
+                        el.innerHTML = '<span style="font-size:9px;color:var(--text-muted);">Need ≥2 snapshots</span>';
+                    });
+                    return;
+                }
+
+                container.querySelectorAll('canvas.dora-spark').forEach(canvas => {
+                    if (!window.Chart) return;
+                    const metric = canvas.dataset.metric;
+                    const apiKey = doraSparkKey[metric];
+                    const series = data[apiKey] || [];
+                    if (series.length < 2) return;
+                    const direction = doraTrendDirection[metric] || 'up';
+                    const first = series[0], last = series[series.length - 1];
+                    const improving = direction === 'up' ? last >= first : last <= first;
+                    const color = improving ? '#22c55e' : '#ef4444';
+                    const chartKey = scope + ':' + metric;
+                    if (doraSparkCharts[chartKey]) {
+                        doraSparkCharts[chartKey].destroy();
+                        delete doraSparkCharts[chartKey];
+                    }
+                    doraSparkCharts[chartKey] = new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            labels: series.map((_, i) => i),
+                            datasets: [{
+                                data: series,
+                                borderColor: color,
+                                backgroundColor: color + '33',
+                                fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5,
+                            }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            scales: { x: { display: false }, y: { display: false } },
+                            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                        }
+                    });
+                });
+            } catch (e) {
+                console.error('loadG9DORAHistory:', e);
             }
         }
 
@@ -1755,8 +1830,11 @@ const dashboardHTML = `<!DOCTYPE html>
                         <div class="dora-value">${f.fmt(val)}</div>
                         <div class="dora-unit">${f.unit(val)}</div>
                         ${rating ? ` + "`" + `<span class="dora-rating rating-${rating}">${rating}</span>` + "`" + ` : ''}
+                        <div class="dora-spark-wrap" style="height:32px;margin-top:6px;"><canvas class="dora-spark" data-metric="${f.key}"></canvas></div>
                     </div>` + "`" + `;
                 }).join('');
+                const projID = readState().id || '';
+                loadG9DORAHistory('project', projID);
             } catch (e) { console.error('loadProjectDORA:', e); }
         }
 
