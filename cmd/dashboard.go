@@ -1871,6 +1871,33 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
         .hero-delta.good { color: var(--success); }
         .hero-delta.bad  { color: var(--error); }
         .hero-delta.neutral { color: var(--text-muted); }
+        /* G9-P4b hero sparklines */
+        .hero-spark { height: 32px; margin-top: 8px; position: relative; }
+        .hero-spark canvas { width: 100% !important; height: 100% !important; }
+        /* G9-P4b mobile responsive — viewport ≤ 768px */
+        @media (max-width: 768px) {
+            .project-hero-grid { grid-template-columns: 1fr; gap: 12px; }
+            .hero-tile { padding: 14px 16px; }
+            .hero-tile .stat-value { font-size: 22px; }
+            .pill-bar { flex-wrap: wrap; }
+            #project-burn-chart-wrap .chart-container { height: 180px; }
+            #iteration-histogram-wrap { height: 160px; }
+            .insights-grid { grid-template-columns: 1fr; }
+            #runs-table tr.run-expand .expand-inner { grid-template-columns: 1fr; }
+            #engineer-runs-table { font-size: 11px; }
+            /* Wrap top-nav controls so they fit narrow screens */
+            .header-actions { flex-wrap: wrap; row-gap: 8px; }
+            /* Tables that don't fit get horizontal scroll */
+            .table-wrapper { overflow-x: auto; }
+            #runs-table, #project-tasks-table { min-width: 0; }
+        }
+        /* G9-P4b mobile small — viewport ≤ 375px */
+        @media (max-width: 375px) {
+            .top-nav { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
+            #role-select, #period-selector { font-size: 12px; padding: 4px 6px; }
+            .card { padding: 12px; }
+            .hero-tile .stat-value { font-size: 20px; }
+        }
         /* cost burn chart area */
         #project-burn-chart-wrap .chart-container { height: 240px; }
         /* tasks table */
@@ -2014,16 +2041,19 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                         <div class="stat-label">Project Cost</div>
                         <div class="stat-value" id="proj-cost">--</div>
                         <div class="hero-delta neutral" id="proj-cost-delta"></div>
+                        <div class="hero-spark"><canvas id="spark-proj-cost"></canvas></div>
                     </div>
                     <div class="hero-tile">
                         <div class="stat-label">Tasks Completed</div>
                         <div class="stat-value" id="proj-tasks">--</div>
                         <div class="hero-delta neutral" id="proj-tasks-delta"></div>
+                        <div class="hero-spark"><canvas id="spark-proj-tasks"></canvas></div>
                     </div>
                     <div class="hero-tile">
                         <div class="stat-label">Avg Cost / Task</div>
                         <div class="stat-value" id="proj-avg-cost">--</div>
                         <div class="hero-delta neutral" id="proj-avg-delta"></div>
+                        <div class="hero-spark"><canvas id="spark-proj-avg"></canvas></div>
                     </div>
                     <div class="hero-tile">
                         <div class="stat-label">DORA (mini)</div>
@@ -2058,7 +2088,7 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                 <div class="card fade-in" style="margin-bottom:16px;">
                     <div class="card-header"><span class="card-title">Tasks</span></div>
                     <div class="card-body no-padding">
-                        <div class="table-wrapper" style="max-height:400px;overflow-y:auto;">
+                        <div class="table-wrapper" style="max-height:400px;overflow:auto;">
                             <table id="project-tasks-table">
                                 <thead><tr>
                                     <th>Issue</th><th>Cost</th><th>Runs</th><th>Iterations</th><th>Status</th><th>Engineer</th>
@@ -3044,7 +3074,54 @@ const dashboardHTMLv2 = `<!DOCTYPE html>
                         plugins: {legend:{display:false}, tooltip:{backgroundColor:'#27272a',titleColor:'#fafafa',bodyColor:'#a1a1aa',borderColor:'#3f3f46',borderWidth:1,padding:10,cornerRadius:8,callbacks:{label:ctx=>' $'+ctx.raw.toFixed(2)}}},
                     },
                 });
+                // G9-P4b: populate hero sparklines from same data — no extra fetch.
+                populateProjectSparklines(sorted);
             } catch (e) { console.error('loadProjectBurn:', e); }
+        }
+
+        // ---- G9-P4b: hero tile sparklines ----
+        // Stores chart instances so we can destroy on re-render.
+        const heroSparkCharts = {};
+
+        // Render a tiny line chart in canvasID with axes/legend hidden.
+        function renderHeroSparkline(canvasID, values, color) {
+            const canvas = document.getElementById(canvasID);
+            if (!canvas || !window.Chart) return;
+            if (heroSparkCharts[canvasID]) {
+                heroSparkCharts[canvasID].destroy();
+                delete heroSparkCharts[canvasID];
+            }
+            heroSparkCharts[canvasID] = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: values.map((_, i) => i),
+                    datasets: [{
+                        data: values,
+                        borderColor: color,
+                        backgroundColor: color + '22',
+                        fill: true, tension: 0.4,
+                        pointRadius: 0, borderWidth: 1.5,
+                    }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    elements: { line: { borderJoinStyle: 'round' } },
+                    animation: false,
+                },
+            });
+        }
+
+        // Populate the 3 project hero sparklines from already-fetched cost/day data.
+        function populateProjectSparklines(sortedDayData) {
+            if (!sortedDayData || !sortedDayData.length) return;
+            const costSeries  = sortedDayData.map(d => d.Cost || 0);
+            const tasksSeries = sortedDayData.map(d => d.RunCount || 0);
+            const avgSeries   = sortedDayData.map(d => (d.RunCount > 0) ? (d.Cost || 0) / d.RunCount : 0);
+            renderHeroSparkline('spark-proj-cost',  costSeries,  '#6366f1');
+            renderHeroSparkline('spark-proj-tasks', tasksSeries, '#22c55e');
+            renderHeroSparkline('spark-proj-avg',   avgSeries,   '#eab308');
         }
 
         async function loadProjectTasks(s) {
