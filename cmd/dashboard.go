@@ -780,6 +780,31 @@ const dashboardHTML = `<!DOCTYPE html>
                         <span class="eng-back" onclick="drillToOrg()">← back to org</span>
                     </div>
                     <div class="card-body">
+                        <!-- G10 P1: Engineer KPI strip (7d window) -->
+                        <h4 style="margin:0 0 8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">7-day KPIs</h4>
+                        <div class="project-hero-grid" id="engineer-kpi-grid" style="margin-bottom:16px;">
+                            <div class="hero-tile">
+                                <div class="stat-label">Cost (7d)</div>
+                                <div class="stat-value" id="eng-kpi-cost">—</div>
+                                <div class="hero-delta neutral" id="eng-kpi-cost-delta"></div>
+                            </div>
+                            <div class="hero-tile">
+                                <div class="stat-label">Runs (7d)</div>
+                                <div class="stat-value" id="eng-kpi-runs">—</div>
+                            </div>
+                            <div class="hero-tile">
+                                <div class="stat-label">Interventions (7d)</div>
+                                <div class="stat-value" id="eng-kpi-interv">—</div>
+                            </div>
+                            <div class="hero-tile">
+                                <div class="stat-label">Autonomy</div>
+                                <div class="stat-value" id="eng-kpi-autonomy">—</div>
+                            </div>
+                            <div class="hero-tile">
+                                <div class="stat-label">Success</div>
+                                <div class="stat-value" id="eng-kpi-success">—</div>
+                            </div>
+                        </div>
                         <h4 style="margin:0 0 8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">Retention sparkline (4 weekly buckets)</h4>
                         <div style="height:80px;position:relative;"><canvas id="engineer-retention-spark"></canvas></div>
                         <h4 style="margin:16px 0 8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">Last 50 runs</h4>
@@ -1513,6 +1538,25 @@ const dashboardHTML = `<!DOCTYPE html>
                 const res = await fetch('/api/g9/engineer/' + encodeURIComponent(name));
                 if (!res.ok) throw new Error('http ' + res.status);
                 const data = await res.json();
+
+                // KPI strip (7d). Empty engineer leaves placeholders intact.
+                const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                if (data.empty) {
+                    ['eng-kpi-cost','eng-kpi-runs','eng-kpi-interv','eng-kpi-autonomy','eng-kpi-success'].forEach(id => setText(id, '—'));
+                    const d = document.getElementById('eng-kpi-cost-delta'); if (d) d.innerHTML = '';
+                } else {
+                    const k = data.kpi_7d || {};
+                    setText('eng-kpi-cost', formatCost(k.cost_7d || 0));
+                    setText('eng-kpi-runs', String(k.runs_7d || 0));
+                    setText('eng-kpi-interv', String(k.interventions_7d || 0));
+                    setText('eng-kpi-autonomy', (k.autonomy_pct || 0).toFixed(0) + '%');
+                    setText('eng-kpi-success', (k.success_pct || 0).toFixed(0) + '%');
+                    const deltaEl = document.getElementById('eng-kpi-cost-delta');
+                    if (deltaEl) {
+                        const wow = data.wow || {};
+                        deltaEl.innerHTML = renderDelta(k.cost_7d || 0, wow.cost_prior_usd || 0, /*lowerBetter=*/true);
+                    }
+                }
 
                 // Runs table.
                 const tbody = document.querySelector('#engineer-runs-table tbody');

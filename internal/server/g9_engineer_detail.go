@@ -10,9 +10,30 @@ import (
 )
 
 type engineerDetailResp struct {
-	Engineer           string             `json:"engineer"`
+	Engineer           string              `json:"engineer"`
 	Runs               []engineerDetailRun `json:"runs"`
-	RetentionSparkline []float64          `json:"retention_sparkline"`
+	RetentionSparkline []float64           `json:"retention_sparkline"`
+	KPI7d              engineerKPI         `json:"kpi_7d"`
+	WoW                engineerWoW         `json:"wow"`
+	Empty              bool                `json:"empty"`
+}
+
+// engineerKPI is the 7-day hero-strip aggregate. Empty engineer (no runs)
+// emits zeros + Empty=true so the frontend can render `—` placeholders
+// instead of misleading 0% values.
+type engineerKPI struct {
+	Cost7d          float64 `json:"cost_7d"`
+	Runs7d          int     `json:"runs_7d"`
+	Interventions7d int     `json:"interventions_7d"`
+	AutonomyPct     float64 `json:"autonomy_pct"`
+	SuccessPct      float64 `json:"success_pct"`
+}
+
+// engineerWoW captures cost-WoW for the hero strip. Prior window is the
+// 7-day block immediately preceding the current 7-day window.
+type engineerWoW struct {
+	CostPriorUSD float64 `json:"cost_prior_usd"`
+	CostDeltaPct float64 `json:"cost_delta_pct"`
 }
 
 type engineerDetailRun struct {
@@ -98,7 +119,54 @@ func handleG9EngineerDetail(store *db.LocalDB) http.HandlerFunc {
 		}
 		resp.RetentionSparkline = buckets
 
+		// 7-day KPI strip (current + prior windows).
+		curStart := now.Add(-7 * 24 * time.Hour)
+		priorStart := now.Add(-14 * 24 * time.Hour)
+		resp.KPI7d = engineerKPIWindow(store, name, curStart, now)
+		priorKPI := engineerKPIWindow(store, name, priorStart, curStart)
+
+		resp.WoW.CostPriorUSD = priorKPI.Cost7d
+		if priorKPI.Cost7d > 0 {
+			resp.WoW.CostDeltaPct = (resp.KPI7d.Cost7d - priorKPI.Cost7d) / priorKPI.Cost7d * 100
+		}
+
+		// Empty=true when the engineer has zero runs in the current window.
+		// Frontend renders `—` placeholders instead of "0%" which would mislead.
+		if resp.KPI7d.Runs7d == 0 {
+			resp.Empty = true
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+// engineerKPIWindow aggregates one engineer's runs over [start, end).
+// Used for current and prior 7-day windows. Errors are swallowed: a query
+// failure returns zero values so the strip still renders.
+func engineerKPIWindow(store *db.LocalDB, name string, start, end time.Time) engineerKPI {
+	var k engineerKPI
+	row := store.QueryRow(`
+		SELECT COUNT(*) AS runs,
+		       COALESCE(SUM(cost_usd), 0) AS cost,
+		       COALESCE(SUM(human_intervention_count), 0) AS intervs,
+		       COALESCE(SUM(CASE WHEN COALESCE(human_intervention_count,0)=0 THEN 1 ELSE 0 END), 0) AS autonomous_runs,
+		       COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END), 0) AS done_runs
+		FROM runs
+		WHERE engineer_name = ?
+		  AND started_at >= ?
+		  AND started_at < ?
+	`, name,
+		start.UTC().Format(time.RFC3339),
+		end.UTC().Format(time.RFC3339))
+
+	var autonomous, done int
+	if err := row.Scan(&k.Runs7d, &k.Cost7d, &k.Interventions7d, &autonomous, &done); err != nil {
+		return k
+	}
+	if k.Runs7d > 0 {
+		k.AutonomyPct = float64(autonomous) / float64(k.Runs7d) * 100
+		k.SuccessPct = float64(done) / float64(k.Runs7d) * 100
+	}
+	return k
 }
