@@ -10,9 +10,12 @@ type RunStat struct {
 }
 
 // Alert is one threshold breach message.
+// Kind/DrilldownURL are populated for dashboard surfacing; CLI ignores them.
 type Alert struct {
-	Severity string `json:"severity"` // "warn" for now
-	Message  string `json:"message"`
+	Kind         string `json:"kind"` // "cost_multiple" or "ac_dip"
+	Severity     string `json:"severity"` // "warn" for now
+	Message      string `json:"message"`
+	DrilldownURL string `json:"drilldown_url,omitempty"`
 }
 
 // Thresholds control when alerts fire. Zero value means "disabled".
@@ -41,8 +44,10 @@ func DetectAlerts(runs []RunStat, th Thresholds) []Alert {
 			}
 			if r.ACPercent > 0 && r.ACPercent < th.ACMinPercent {
 				alerts = append(alerts, Alert{
-					Severity: "warn",
-					Message:  r.Engineer + ": AC completion below baseline",
+					Kind:         "ac_dip",
+					Severity:     "warn",
+					Message:      r.Engineer + ": AC completion below baseline",
+					DrilldownURL: "?role=engineer&id=" + r.Engineer,
 				})
 				seen[r.Engineer] = true
 			}
@@ -78,8 +83,10 @@ func DetectAlerts(runs []RunStat, th Thresholds) []Alert {
 				baseline := sumOthers / float64(n)
 				if baseline > 0 && cost >= th.CostMultiple*baseline {
 					alerts = append(alerts, Alert{
-						Severity: "warn",
-						Message:  name + ": cost " + formatMultiple(cost/baseline) + "× baseline",
+						Kind:         "cost_multiple",
+						Severity:     "warn",
+						Message:      name + ": cost " + formatMultiple(cost/baseline) + "× baseline",
+						DrilldownURL: "?role=agent&id=" + name,
 					})
 				}
 			}

@@ -827,6 +827,14 @@ const dashboardHTML = `<!DOCTYPE html>
                     <span id="g9-stale-msg">Metric data is stale. Run: dandori metric export --include-attribution</span>
                 </div>
 
+                <!-- Org threshold-alerts banner (only renders when alerts present) -->
+                <div id="org-alerts-banner" class="stale-banner" style="display:none; background:#7f1d1d; border-color:#dc2626;">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    <ul id="org-alerts-list" style="margin:0;padding-left:16px;list-style:none;flex:1;"></ul>
+                </div>
+
                 <!-- DORA Scorecard (org scope only) -->
                 <div id="g9-dora-section" class="card fade-in" style="margin-bottom: 16px;">
                     <div class="card-header">
@@ -1464,6 +1472,30 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
+        async function loadG9Alerts() {
+            const banner = document.getElementById('org-alerts-banner');
+            const list = document.getElementById('org-alerts-list');
+            if (!banner || !list) return;
+            try {
+                const res = await fetch('/api/g9/alerts');
+                if (!res.ok) throw new Error('http ' + res.status);
+                const data = await res.json();
+                const alerts = data.alerts || [];
+                if (alerts.length === 0) {
+                    banner.style.display = 'none';
+                    list.innerHTML = '';
+                    return;
+                }
+                banner.style.display = 'flex';
+                list.innerHTML = alerts.map(a => {
+                    const link = a.drilldown_url ? ` + "`" + `<a href="${a.drilldown_url}" style="color:#fecaca;text-decoration:underline;margin-left:8px;">view</a>` + "`" + ` : '';
+                    return ` + "`" + `<li>⚠ ${escapeHTML(a.message || '')}${link}</li>` + "`" + `;
+                }).join('');
+            } catch (e) {
+                console.error('loadG9Alerts:', e);
+            }
+        }
+
         function toggleIntentRow(idx) {
             const row = document.getElementById('irow-' + idx);
             if (row) row.classList.toggle('expanded');
@@ -1865,6 +1897,11 @@ const dashboardHTML = `<!DOCTYPE html>
             }
             if (role === 'org') {
                 loadG9DORA();
+                loadG9Alerts();
+            } else {
+                // Hide alerts banner outside org scope.
+                const banner = document.getElementById('org-alerts-banner');
+                if (banner) banner.style.display = 'none';
             }
             loadG9Attribution();
             loadG9Intent();

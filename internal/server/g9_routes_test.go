@@ -822,3 +822,115 @@ func TestLegacyEndpointsStillWork(t *testing.T) {
 		}
 	}
 }
+
+// ---- /api/g9/alerts ----
+
+// seedRunWithAgent inserts a run with explicit agent + cost so cost_multiple
+// alerts can be exercised without touching the existing fixed-agent helper.
+func seedRunWithAgent(t *testing.T, store *db.LocalDB, runID, engineer, agent string, costUSD float64, startedAt time.Time) {
+	t.Helper()
+	_, err := store.Exec(`
+		INSERT INTO runs (id, jira_issue_key, agent_name, agent_type, user, workstation_id,
+		                  engineer_name, started_at, cost_usd, status)
+		VALUES (?, 'TASK-1', ?, 'claude_code', 'tester', 'ws-1', ?, ?, ?, 'done')
+	`, runID, agent, engineer, startedAt.UTC().Format(time.RFC3339), costUSD)
+	if err != nil {
+		t.Fatalf("seedRunWithAgent %s: %v", runID, err)
+	}
+}
+
+func TestG9Alerts_NoAlerts_ReturnsEmpty(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// Even-cost agents → no cost_multiple breach.
+	seedRunWithAgent(t, store, "run-a-1", "alice", "agent-a", 1.0, now.AddDate(0, 0, -1))
+	seedRunWithAgent(t, store, "run-b-1", "bob", "agent-b", 1.0, now.AddDate(0, 0, -1))
+
+	status, body := g9Get(t, mux, "/api/g9/alerts")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var resp struct {
+		Alerts []map[string]any `json:"alerts"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if len(resp.Alerts) != 0 {
+		t.Errorf("expected 0 alerts, got %d: %v", len(resp.Alerts), resp.Alerts)
+	}
+}
+
+func TestG9Alerts_CostMultipleAlert(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// Hot agent at 5× cost of cool agent → triggers cost_multiple (threshold 3×).
+	seedRunWithAgent(t, store, "run-hot-1", "alice", "hot-agent", 50.0, now.AddDate(0, 0, -1))
+	seedRunWithAgent(t, store, "run-cool-1", "bob", "cool-agent", 10.0, now.AddDate(0, 0, -1))
+
+	status, body := g9Get(t, mux, "/api/g9/alerts")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var resp struct {
+		Alerts []struct {
+			Kind         string `json:"kind"`
+			Severity     string `json:"severity"`
+			Message      string `json:"message"`
+			DrilldownURL string `json:"drilldown_url"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if len(resp.Alerts) == 0 {
+		t.Fatalf("expected cost_multiple alert, got none. body=%s", body)
+	}
+	found := false
+	for _, a := range resp.Alerts {
+		if a.Kind == "cost_multiple" && a.Severity == "warn" && strings.Contains(a.Message, "hot-agent") {
+			found = true
+			if a.DrilldownURL == "" {
+				t.Errorf("cost_multiple alert missing drilldown_url: %+v", a)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no cost_multiple alert with hot-agent message; alerts=%+v", resp.Alerts)
+	}
+}
+
+func TestG9Alerts_DrilldownURL(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	seedRunWithAgent(t, store, "run-hot-2", "alice", "hot-agent", 50.0, now.AddDate(0, 0, -1))
+	seedRunWithAgent(t, store, "run-cool-2", "bob", "cool-agent", 10.0, now.AddDate(0, 0, -1))
+
+	_, body := g9Get(t, mux, "/api/g9/alerts")
+	var resp struct {
+		Alerts []map[string]any `json:"alerts"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, a := range resp.Alerts {
+		url, ok := a["drilldown_url"].(string)
+		if !ok || url == "" {
+			t.Errorf("alert missing drilldown_url: %+v", a)
+			continue
+		}
+		// Cost-multiple drilldown should target an agent scope; AC-dip targets engineer.
+		if !strings.Contains(url, "role=") || !strings.Contains(url, "id=") {
+			t.Errorf("drilldown_url %q lacks role/id params", url)
+		}
+	}
+}
