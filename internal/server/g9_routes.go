@@ -23,6 +23,7 @@ func RegisterG9Routes(mux *http.ServeMux, store *db.LocalDB) {
 	mux.HandleFunc("/api/g9/insights", handleG9Insights(store))
 	mux.HandleFunc("/api/g9/alerts", handleG9Alerts(store))
 	mux.HandleFunc("/api/g9/dora/history", handleG9DORAHistory(store))
+	mux.HandleFunc("/api/g9/mix-leaderboard", handleG9MixLeaderboard(store))
 	// Path-parameter routes — registered with trailing slash so ServeMux does
 	// prefix dispatch; the handler parses the suffix.
 	mux.HandleFunc("/api/g9/run/", handleG9RunExpand(store))

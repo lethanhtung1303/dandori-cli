@@ -1016,6 +1016,27 @@ const dashboardHTML = `<!DOCTYPE html>
                 </div>
             </div>
 
+            <div class="card fade-in" style="animation-delay: 0.48s; margin-bottom: 16px;" id="mix-leaderboard-card">
+                <div class="card-header">
+                    <span class="card-title">Engineer × Agent Leaderboard — last 28 days</span>
+                    <span style="font-size:12px;color:var(--text-muted);">click engineer to drill in</span>
+                </div>
+                <div class="card-body no-padding">
+                    <div class="table-wrapper" style="max-height: 420px; overflow-y: auto;">
+                        <table id="mix-leaderboard-table">
+                            <thead><tr>
+                                <th data-sort="engineer">Engineer</th>
+                                <th data-sort="agent">Agent</th>
+                                <th data-sort="run_count" style="width:80px;">Runs</th>
+                                <th data-sort="total_cost" style="width:120px;">Cost</th>
+                                <th data-sort="avg_cost" style="width:120px;">Avg Cost</th>
+                            </tr></thead>
+                            <tbody><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div class="card fade-in" style="animation-delay: 0.5s;" id="runs">
                 <div class="card-header"><span class="card-title">Recent Runs</span></div>
                 <div class="card-body no-padding">
@@ -1547,6 +1568,67 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
+        let mixLeaderboardRows = [];
+        let mixLeaderboardSort = { col: 'total_cost', dir: 'desc' };
+
+        async function loadG9MixLeaderboard() {
+            const tbody = document.querySelector('#mix-leaderboard-table tbody');
+            if (!tbody) return;
+            try {
+                const res = await fetch('/api/g9/mix-leaderboard');
+                if (!res.ok) throw new Error('http ' + res.status);
+                const data = await res.json();
+                mixLeaderboardRows = data.rows || [];
+                renderMixLeaderboard();
+            } catch (e) {
+                console.error('loadG9MixLeaderboard:', e);
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Error loading leaderboard</td></tr>';
+            }
+        }
+
+        function renderMixLeaderboard() {
+            const tbody = document.querySelector('#mix-leaderboard-table tbody');
+            if (!tbody) return;
+            if (!mixLeaderboardRows.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No engineer data for this period</td></tr>';
+                return;
+            }
+            const { col, dir } = mixLeaderboardSort;
+            const sorted = [...mixLeaderboardRows].sort((a, b) => {
+                let av = a[col], bv = b[col];
+                if (typeof av === 'string') av = av.toLowerCase();
+                if (typeof bv === 'string') bv = bv.toLowerCase();
+                if (av < bv) return dir === 'asc' ? -1 : 1;
+                if (av > bv) return dir === 'asc' ? 1 : -1;
+                return 0;
+            });
+            tbody.innerHTML = sorted.map(r => {
+                const engCell = r.engineer && r.engineer !== '(unassigned)'
+                    ? ` + "`" + `<a href="javascript:void(0)" onclick="drillToEngineer('${escapeHTML(r.engineer)}')" style="color:var(--accent);text-decoration:none;">${escapeHTML(r.engineer)}</a>` + "`" + `
+                    : ` + "`" + `<span style="color:var(--text-muted);">${escapeHTML(r.engineer || '')}</span>` + "`" + `;
+                return ` + "`" + `<tr>
+                    <td>${engCell}</td>
+                    <td>${escapeHTML(r.agent || '—')}</td>
+                    <td>${r.run_count || 0}</td>
+                    <td class="cost">${formatCost(r.total_cost || 0)}</td>
+                    <td class="cost" style="color:var(--text-muted);">${formatCost(r.avg_cost || 0)}</td>
+                </tr>` + "`" + `;
+            }).join('');
+        }
+
+        document.addEventListener('click', e => {
+            const th = e.target.closest('#mix-leaderboard-table th[data-sort]');
+            if (!th) return;
+            const col = th.dataset.sort;
+            if (mixLeaderboardSort.col === col) {
+                mixLeaderboardSort.dir = mixLeaderboardSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                mixLeaderboardSort.col = col;
+                mixLeaderboardSort.dir = (col === 'engineer' || col === 'agent') ? 'asc' : 'desc';
+            }
+            renderMixLeaderboard();
+        });
+
         async function loadG9Alerts() {
             const banner = document.getElementById('org-alerts-banner');
             const list = document.getElementById('org-alerts-list');
@@ -1976,10 +2058,15 @@ const dashboardHTML = `<!DOCTYPE html>
             if (role === 'org') {
                 loadG9DORA();
                 loadG9Alerts();
+                loadG9MixLeaderboard();
+                const card = document.getElementById('mix-leaderboard-card');
+                if (card) card.style.display = '';
             } else {
-                // Hide alerts banner outside org scope.
+                // Hide org-only widgets outside org scope.
                 const banner = document.getElementById('org-alerts-banner');
                 if (banner) banner.style.display = 'none';
+                const card = document.getElementById('mix-leaderboard-card');
+                if (card) card.style.display = 'none';
             }
             loadG9Attribution();
             loadG9Intent();

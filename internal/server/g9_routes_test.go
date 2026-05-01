@@ -1088,6 +1088,117 @@ func TestG9DORAHistory_EmptySnapshots_NoError(t *testing.T) {
 	}
 }
 
+// ---- /api/g9/mix-leaderboard ----
+
+func TestG9MixLeaderboard_EmptyDB_ReturnsEmptyList(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	status, body := g9Get(t, mux, "/api/g9/mix-leaderboard")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var resp struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Rows) != 0 {
+		t.Errorf("expected 0 rows, got %d: %v", len(resp.Rows), resp.Rows)
+	}
+}
+
+func TestG9MixLeaderboard_ReturnsTopN(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	// 25 distinct engineers; default limit=20 should trim.
+	now := time.Now()
+	for i := 0; i < 25; i++ {
+		seedRunWithAgent(t, store, fmt.Sprintf("run-%02d", i),
+			fmt.Sprintf("eng-%02d", i), "agent-x", float64(i+1), now.AddDate(0, 0, -1))
+	}
+	_, body := g9Get(t, mux, "/api/g9/mix-leaderboard")
+	var resp struct {
+		Rows  []map[string]any `json:"rows"`
+		Limit int              `json:"limit"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Rows) > resp.Limit {
+		t.Errorf("rows=%d > limit=%d", len(resp.Rows), resp.Limit)
+	}
+	if resp.Limit != 20 {
+		t.Errorf("limit=%d want 20", resp.Limit)
+	}
+}
+
+func TestG9MixLeaderboard_PeriodFilter_Honored(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// Inside default 28d window:
+	seedRunWithAgent(t, store, "run-recent", "alice", "agent-x", 1.0, now.AddDate(0, 0, -7))
+	// Outside default 28d window:
+	seedRunWithAgent(t, store, "run-old", "bob", "agent-x", 1.0, now.AddDate(0, 0, -90))
+
+	_, body := g9Get(t, mux, "/api/g9/mix-leaderboard?period=28")
+	var resp struct {
+		Rows []struct {
+			Engineer string `json:"engineer"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, r := range resp.Rows {
+		if r.Engineer == "bob" {
+			t.Errorf("bob (90d ago) should be filtered out by 28d window: %v", resp.Rows)
+		}
+	}
+	foundAlice := false
+	for _, r := range resp.Rows {
+		if r.Engineer == "alice" {
+			foundAlice = true
+		}
+	}
+	if !foundAlice {
+		t.Errorf("alice (7d ago) should be present; rows=%v", resp.Rows)
+	}
+}
+
+func TestG9MixLeaderboard_ShapeContainsCoreFields(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	seedRunWithAgent(t, store, "run-shape-1", "alice", "agent-x", 2.5, now.AddDate(0, 0, -1))
+
+	_, body := g9Get(t, mux, "/api/g9/mix-leaderboard")
+	var resp struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if len(resp.Rows) == 0 {
+		t.Fatalf("expected at least 1 row, got 0")
+	}
+	r := resp.Rows[0]
+	for _, key := range []string{"engineer", "agent", "run_count", "total_cost"} {
+		if _, ok := r[key]; !ok {
+			t.Errorf("row missing key %q: %v", key, r)
+		}
+	}
+}
+
 func TestG9Alerts_DrilldownURL(t *testing.T) {
 	store := setupG9DB(t)
 	defer store.Close()
