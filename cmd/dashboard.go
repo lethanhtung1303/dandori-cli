@@ -753,7 +753,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
                 <!-- Iteration distribution histogram -->
                 <div class="card fade-in" style="margin-bottom:16px;">
-                    <div class="card-header"><span class="card-title">Iteration Distribution</span></div>
+                    <div class="card-header"><span class="card-title">Iteration Distribution</span><span class="card-subtitle" style="color:var(--text-muted);font-size:12px;margin-left:8px;">tasks bucketed by rework rounds</span></div>
                     <div class="card-body">
                         <div id="iteration-histogram-wrap">
                             <canvas id="iteration-histogram-chart"></canvas>
@@ -1867,7 +1867,7 @@ const dashboardHTML = `<!DOCTYPE html>
                     data: {
                         labels: buckets.map(b => b.label),
                         datasets: [{
-                            label: 'Runs', data: buckets.map(b => b.count),
+                            label: 'Tasks', data: buckets.map(b => b.count),
                             backgroundColor: 'rgba(99,102,241,0.6)', borderColor: '#6366f1', borderWidth: 1,
                         }],
                     },

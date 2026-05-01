@@ -606,38 +606,48 @@ func TestG9Level_PeriodWindow_ExcludesOlderRuns(t *testing.T) {
 	}
 }
 
-// ---- P3 Iterations tests ----
+// ---- P3 Iterations tests (G10 P6: rewired to iteration round counts) ----
 
-// TestG9Iterations_ReturnsHistogramByDuration seeds runs with various
-// duration_sec values and verifies the /api/g9/iterations response shape
-// and bucket assignment.
-func TestG9Iterations_ReturnsHistogramByDuration(t *testing.T) {
+// TestG9Iterations_ReturnsIterationCounts_NotDuration seeds tasks with known
+// task.iteration.start event counts (regardless of duration_sec) and verifies
+// the /api/g9/iterations response buckets reflect iteration rounds, not duration.
+func TestG9Iterations_ReturnsIterationCounts_NotDuration(t *testing.T) {
 	store := setupG9DB(t)
 	defer store.Close()
 
 	now := time.Now().UTC()
-	// Seed runs with known durations across duration buckets.
-	// Buckets: <60s, 60-300s, 300-1800s, 1800-7200s, >7200s
-	type runSeed struct {
-		id          string
-		durationSec int
+	startTS := now.Add(-1 * 24 * time.Hour).UTC().Format(time.RFC3339)
+
+	// Seed: task A=1 round (no events), B=2 rounds (1 event), C=5 rounds (4 events).
+	// Vary duration_sec wildly to confirm it's NOT used for bucketing.
+	type taskSeed struct {
+		issueKey  string
+		runID     string
+		durSec    int
+		extraIter int // number of task.iteration.start events to seed beyond round 1
 	}
-	seeds := []runSeed{
-		{"iter-r1", 5},    // <1m
-		{"iter-r2", 30},   // <1m
-		{"iter-r3", 120},  // 1-5m
-		{"iter-r4", 600},  // 5-30m
-		{"iter-r5", 3600}, // 30m-2h
-		{"iter-r6", 7201}, // >2h
+	seeds := []taskSeed{
+		{"CLITEST-1", "iter-r1", 7200, 0},  // round_count=1, large duration (would be >2h in old)
+		{"CLITEST-2", "iter-r2", 30, 1},    // round_count=2, tiny duration
+		{"CLITEST-3", "iter-r3", 1800, 4},  // round_count=5, mid duration
 	}
 	for _, s := range seeds {
 		_, err := store.Exec(`
 			INSERT INTO runs (id, jira_issue_key, agent_name, agent_type, user, workstation_id,
 			                  engineer_name, started_at, cost_usd, status, duration_sec)
-			VALUES (?, 'CLITEST-1', 'claude-code', 'claude_code', 'tester', 'ws-1', 'alice', ?, 0.1, 'done', ?)
-		`, s.id, now.Add(-1*24*time.Hour).UTC().Format(time.RFC3339), s.durationSec)
+			VALUES (?, ?, 'claude-code', 'claude_code', 'tester', 'ws-1', 'alice', ?, 0.1, 'done', ?)
+		`, s.runID, s.issueKey, startTS, s.durSec)
 		if err != nil {
-			t.Fatalf("seed run %s: %v", s.id, err)
+			t.Fatalf("seed run %s: %v", s.runID, err)
+		}
+		for i := 0; i < s.extraIter; i++ {
+			_, err := store.Exec(`
+				INSERT INTO events (run_id, ts, layer, event_type, data)
+				VALUES (?, ?, 1, 'task.iteration.start', '{"round":2}')
+			`, s.runID, startTS)
+			if err != nil {
+				t.Fatalf("seed iter event for %s: %v", s.runID, err)
+			}
 		}
 	}
 
@@ -652,73 +662,51 @@ func TestG9Iterations_ReturnsHistogramByDuration(t *testing.T) {
 		t.Fatalf("unmarshal: %v; body=%s", err, body)
 	}
 
-	// Verify top-level shape.
-	if resp["total"] == nil {
-		t.Error("expected 'total' key in response")
-	}
 	total, _ := resp["total"].(float64)
-	if total != 6 {
-		t.Errorf("total=%v want 6", total)
+	if total != 3 {
+		t.Errorf("total=%v want 3 (3 distinct tasks)", total)
 	}
 
 	bucketsRaw, ok := resp["buckets"].([]any)
-	if !ok {
-		t.Fatalf("expected 'buckets' array, got %T: %v", resp["buckets"], resp["buckets"])
+	if !ok || len(bucketsRaw) != 5 {
+		t.Fatalf("expected 5 buckets, got %T len=%d", resp["buckets"], len(bucketsRaw))
 	}
-	if len(bucketsRaw) != 5 {
-		t.Errorf("expected 5 buckets, got %d", len(bucketsRaw))
-	}
-
-	// Build label→count map for assertions.
 	counts := map[string]int{}
 	for _, b := range bucketsRaw {
-		bm, ok := b.(map[string]any)
-		if !ok {
-			t.Fatalf("bucket is not object: %T", b)
-		}
-		label, _ := bm["label"].(string)
-		count, _ := bm["count"].(float64)
-		counts[label] = int(count)
+		bm := b.(map[string]any)
+		counts[bm["label"].(string)] = int(bm["count"].(float64))
 	}
-
-	wantCounts := map[string]int{
-		"<1m":    2, // r1(5s) + r2(30s)
-		"1-5m":   1, // r3(120s)
-		"5-30m":  1, // r4(600s)
-		"30m-2h": 1, // r5(3600s)
-		">2h":    1, // r6(7201s)
-	}
-	for label, want := range wantCounts {
-		got := counts[label]
-		if got != want {
-			t.Errorf("bucket %q: count=%d want %d", label, got, want)
+	want := map[string]int{"1": 1, "2": 1, "3": 0, "4": 0, "5+": 1}
+	for label, w := range want {
+		if counts[label] != w {
+			t.Errorf("bucket %q: got %d want %d", label, counts[label], w)
 		}
 	}
 }
 
-// TestG9Iterations_ProjectFilter verifies that role=project&id=X scopes to
-// that project's runs only.
-func TestG9Iterations_ProjectFilter(t *testing.T) {
+// TestG9Iterations_ProjectFilter_Honored verifies that role=project&id=X scopes
+// to that project's tasks only (not just runs — distinct tasks).
+func TestG9Iterations_ProjectFilter_Honored(t *testing.T) {
 	store := setupG9DB(t)
 	defer store.Close()
 
 	now := time.Now().UTC()
 	ts := now.Add(-1 * 24 * time.Hour).UTC().Format(time.RFC3339)
 
-	insertRun := func(id, key string, dur int) {
+	insertRun := func(id, key string) {
 		t.Helper()
 		_, err := store.Exec(`
 			INSERT INTO runs (id, jira_issue_key, agent_name, agent_type, user, workstation_id,
 			                  engineer_name, started_at, cost_usd, status, duration_sec)
-			VALUES (?, ?, 'claude-code', 'claude_code', 'tester', 'ws-1', 'alice', ?, 0.1, 'done', ?)
-		`, id, key, ts, dur)
+			VALUES (?, ?, 'claude-code', 'claude_code', 'tester', 'ws-1', 'alice', ?, 0.1, 'done', 60)
+		`, id, key, ts)
 		if err != nil {
 			t.Fatalf("insert %s: %v", id, err)
 		}
 	}
-	insertRun("pf-r1", "CLITEST-1", 30)
-	insertRun("pf-r2", "CLITEST-2", 120)
-	insertRun("pf-r3", "OTHER-1", 600) // should be excluded
+	insertRun("pf-r1", "CLITEST-1")
+	insertRun("pf-r2", "CLITEST-2")
+	insertRun("pf-r3", "OTHER-1") // excluded by project filter
 
 	mux := newG9Mux(store)
 	status, body := g9Get(t, mux, "/api/g9/iterations?role=project&id=CLITEST&period=28d")
@@ -731,7 +719,38 @@ func TestG9Iterations_ProjectFilter(t *testing.T) {
 	}
 	total, _ := resp["total"].(float64)
 	if total != 2 {
-		t.Errorf("total=%v want 2 (CLITEST runs only)", total)
+		t.Errorf("total=%v want 2 (CLITEST tasks only)", total)
+	}
+}
+
+// TestG9Iterations_EmptyDB_ReturnsEmptyBuckets verifies empty DB returns
+// 5 zero-count buckets (canonical shape, total=0).
+func TestG9Iterations_EmptyDB_ReturnsEmptyBuckets(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+
+	mux := newG9Mux(store)
+	status, body := g9Get(t, mux, "/api/g9/iterations?role=org&period=28d")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d want 200; body=%s", status, body)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	total, _ := resp["total"].(float64)
+	if total != 0 {
+		t.Errorf("total=%v want 0", total)
+	}
+	bucketsRaw, ok := resp["buckets"].([]any)
+	if !ok || len(bucketsRaw) != 5 {
+		t.Fatalf("expected 5 zero-count buckets, got %v", resp["buckets"])
+	}
+	for _, b := range bucketsRaw {
+		bm := b.(map[string]any)
+		if c, _ := bm["count"].(float64); c != 0 {
+			t.Errorf("empty DB bucket %v count=%v want 0", bm["label"], c)
+		}
 	}
 }
 

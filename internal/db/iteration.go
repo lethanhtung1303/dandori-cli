@@ -122,6 +122,86 @@ func collectStrings(rows *sql.Rows) ([]string, error) {
 	return out, rows.Err()
 }
 
+// IterationBucket is one row of the iteration-count histogram returned by
+// IterationDistribution: a bucket label ("1", "2", "3", "4", "5+") and the
+// number of distinct tasks that fall in it.
+type IterationBucket struct {
+	Label string
+	Count int
+}
+
+// IterationDistribution returns a histogram of tasks bucketed by their
+// iteration round count. Round count = 1 + (count of task.iteration.start
+// events for that issue). The +1 accounts for the implicit first round
+// (no event emitted for round 1, mirroring IterationStats semantics).
+//
+// Window scopes to runs whose started_at falls in [since, until). When
+// projectKey != "", scopes to runs whose jira_issue_key starts with
+// "<projectKey>-". Tasks with empty jira_issue_key are excluded.
+//
+// Returns 5 buckets in canonical order: "1", "2", "3", "4", "5+".
+func (l *LocalDB) IterationDistribution(since, until time.Time, projectKey string) ([]IterationBucket, int, error) {
+	q := `
+		WITH per_task AS (
+			SELECT r.jira_issue_key,
+			       1 + (
+			           SELECT COUNT(*) FROM events e
+			           JOIN runs r2 ON e.run_id = r2.id
+			           WHERE r2.jira_issue_key = r.jira_issue_key
+			             AND e.event_type = 'task.iteration.start'
+			       ) AS round_count
+			FROM runs r
+			WHERE r.jira_issue_key IS NOT NULL AND r.jira_issue_key != ''
+			  AND r.started_at >= ? AND r.started_at < ?`
+	args := []any{since.UTC().Format(time.RFC3339), until.UTC().Format(time.RFC3339)}
+	if projectKey != "" {
+		q += ` AND r.jira_issue_key LIKE ?`
+		args = append(args, projectKey+"-%")
+	}
+	q += `
+			GROUP BY r.jira_issue_key
+		)
+		SELECT round_count FROM per_task
+	`
+	rows, err := l.db.Query(q, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("iteration distribution query: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int{"1": 0, "2": 0, "3": 0, "4": 0, "5+": 0}
+	total := 0
+	for rows.Next() {
+		var r int
+		if err := rows.Scan(&r); err != nil {
+			return nil, 0, err
+		}
+		switch {
+		case r <= 1:
+			counts["1"]++
+		case r == 2:
+			counts["2"]++
+		case r == 3:
+			counts["3"]++
+		case r == 4:
+			counts["4"]++
+		default:
+			counts["5+"]++
+		}
+		total++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	order := []string{"1", "2", "3", "4", "5+"}
+	out := make([]IterationBucket, len(order))
+	for i, label := range order {
+		out[i] = IterationBucket{Label: label, Count: counts[label]}
+	}
+	return out, total, nil
+}
+
 // IterationEventsForIssue returns all task.iteration.start rows for the issue,
 // parsed from events.data JSON. Events are linked via runs.jira_issue_key
 // (events table itself doesn't carry issue_key — it's denormalised through
