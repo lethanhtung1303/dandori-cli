@@ -848,6 +848,21 @@ const dashboardHTML = `<!DOCTYPE html>
                     </div>
                 </div>
 
+                <!-- Rework Rate tile (DORA-adjacent, org scope) -->
+                <div id="org-rework-card" class="card fade-in" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <span class="card-title">Rework Rate — Last 28 days</span>
+                        <span style="font-size:12px;color:var(--text-muted);" id="org-rework-meta"></span>
+                    </div>
+                    <div class="card-body">
+                        <div class="dora-metric" id="org-rework-tile" style="max-width:200px;">
+                            <div class="dora-label">Rework %</div>
+                            <div class="dora-value" id="org-rework-value">—</div>
+                            <div class="dora-unit" id="org-rework-delta" style="color:var(--text-muted);"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- G9-HERO-GRID: Attribution + Intent -->
                 <div class="g9-hero-grid">
                     <!-- Attribution Tile -->
@@ -1653,6 +1668,55 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
+        async function loadG9Rework(scope, id) {
+            const card = document.getElementById('org-rework-card');
+            const tile = document.getElementById('org-rework-tile');
+            const valueEl = document.getElementById('org-rework-value');
+            const deltaEl = document.getElementById('org-rework-delta');
+            const metaEl = document.getElementById('org-rework-meta');
+            if (!card || !valueEl) return;
+            try {
+                const params = new URLSearchParams();
+                if (scope) params.set('scope', scope);
+                if (id) params.set('id', id);
+                const url = '/api/g9/rework' + (params.toString() ? '?' + params.toString() : '');
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('http ' + res.status);
+                const data = await res.json();
+                if (tile) tile.classList.remove('threshold-exceeded');
+                if (data.empty) {
+                    valueEl.textContent = '—';
+                    deltaEl.textContent = '';
+                    metaEl.textContent = (data.total || 0) + ' runs';
+                    return;
+                }
+                const ratePct = (data.rate * 100).toFixed(1) + '%';
+                valueEl.textContent = ratePct;
+                metaEl.textContent = (data.rework || 0) + ' / ' + (data.total || 0) + ' runs';
+                if (data.exceeds_threshold && tile) {
+                    tile.classList.add('threshold-exceeded');
+                    valueEl.style.color = '#ef4444';
+                } else {
+                    valueEl.style.color = '';
+                }
+                if (typeof data.wow_delta_pp === 'number') {
+                    const pp = data.wow_delta_pp;
+                    // Lower is better: down = green, up = red.
+                    const arrow = pp < 0 ? '▼' : (pp > 0 ? '▲' : '·');
+                    const color = pp < 0 ? '#22c55e' : (pp > 0 ? '#ef4444' : 'var(--text-muted)');
+                    const sign = pp > 0 ? '+' : '';
+                    deltaEl.innerHTML = '<span style="color:' + color + ';">' + arrow + ' ' + sign + pp.toFixed(1) + 'pp WoW</span>';
+                } else {
+                    deltaEl.innerHTML = '<span style="color:var(--text-muted);">no prior data</span>';
+                }
+            } catch (e) {
+                console.error('loadG9Rework:', e);
+                valueEl.textContent = '—';
+                deltaEl.textContent = '';
+                if (metaEl) metaEl.textContent = 'error';
+            }
+        }
+
         function toggleIntentRow(idx) {
             const row = document.getElementById('irow-' + idx);
             if (row) row.classList.toggle('expanded');
@@ -2059,14 +2123,19 @@ const dashboardHTML = `<!DOCTYPE html>
                 loadG9DORA();
                 loadG9Alerts();
                 loadG9MixLeaderboard();
+                loadG9Rework('org', '');
                 const card = document.getElementById('mix-leaderboard-card');
                 if (card) card.style.display = '';
+                const reworkCard = document.getElementById('org-rework-card');
+                if (reworkCard) reworkCard.style.display = '';
             } else {
                 // Hide org-only widgets outside org scope.
                 const banner = document.getElementById('org-alerts-banner');
                 if (banner) banner.style.display = 'none';
                 const card = document.getElementById('mix-leaderboard-card');
                 if (card) card.style.display = 'none';
+                const reworkCard = document.getElementById('org-rework-card');
+                if (reworkCard) reworkCard.style.display = 'none';
             }
             loadG9Attribution();
             loadG9Intent();

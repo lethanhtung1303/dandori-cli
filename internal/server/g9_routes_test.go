@@ -1199,6 +1199,181 @@ func TestG9MixLeaderboard_ShapeContainsCoreFields(t *testing.T) {
 	}
 }
 
+// ---- /api/g9/rework ----
+
+// seedRunForRework inserts one run optionally tagged as a rework run by
+// adding a task.iteration.start round=2 event linked to the same run id.
+func seedRunForRework(t *testing.T, store *db.LocalDB, runID, issueKey string, isRework bool, startedAt time.Time) {
+	t.Helper()
+	_, err := store.Exec(`
+		INSERT INTO runs (id, jira_issue_key, agent_name, agent_type, user, workstation_id,
+		                  engineer_name, started_at, cost_usd, status)
+		VALUES (?, ?, 'claude-code', 'claude_code', 'tester', 'ws-1', 'alice', ?, 0.1, 'done')
+	`, runID, issueKey, startedAt.UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("seedRunForRework %s: %v", runID, err)
+	}
+	if isRework {
+		_, err := store.Exec(`
+			INSERT INTO events (run_id, ts, layer, event_type, data)
+			VALUES (?, ?, 1, 'task.iteration.start', '{"round":2}')
+		`, runID, startedAt.UTC().Format(time.RFC3339))
+		if err != nil {
+			t.Fatalf("seed rework event for %s: %v", runID, err)
+		}
+	}
+}
+
+func TestG9Rework_NoRuns_ReturnsPlaceholder(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	status, body := g9Get(t, mux, "/api/g9/rework")
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var resp struct {
+		Total int  `json:"total"`
+		Empty bool `json:"empty"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Empty || resp.Total != 0 {
+		t.Errorf("got total=%d empty=%v want 0/true", resp.Total, resp.Empty)
+	}
+}
+
+func TestG9Rework_RateCalculation(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// 10 runs, 3 rework → rate=0.30.
+	for i := 0; i < 10; i++ {
+		isRework := i < 3
+		seedRunForRework(t, store, fmt.Sprintf("rw-%02d", i),
+			fmt.Sprintf("CLITEST-%d", i+1), isRework, now.AddDate(0, 0, -1))
+	}
+	_, body := g9Get(t, mux, "/api/g9/rework")
+	var resp struct {
+		Rate   float64 `json:"rate"`
+		Total  int     `json:"total"`
+		Rework int     `json:"rework"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if resp.Total != 10 || resp.Rework != 3 {
+		t.Errorf("got total=%d rework=%d want 10/3", resp.Total, resp.Rework)
+	}
+	if resp.Rate < 0.29 || resp.Rate > 0.31 {
+		t.Errorf("rate=%v want ≈0.30", resp.Rate)
+	}
+}
+
+func TestG9Rework_WoWDelta(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// Current 28d: 4/10 = 40%; prior 28d (29..56d ago): 2/10 = 20%; expect +20pp.
+	for i := 0; i < 10; i++ {
+		seedRunForRework(t, store, fmt.Sprintf("cur-%02d", i),
+			fmt.Sprintf("CLITEST-c%d", i), i < 4, now.AddDate(0, 0, -3))
+	}
+	for i := 0; i < 10; i++ {
+		seedRunForRework(t, store, fmt.Sprintf("pri-%02d", i),
+			fmt.Sprintf("CLITEST-p%d", i), i < 2, now.AddDate(0, 0, -40))
+	}
+	_, body := g9Get(t, mux, "/api/g9/rework")
+	var resp struct {
+		Rate       float64 `json:"rate"`
+		PriorRate  float64 `json:"prior_rate"`
+		WowDeltaPp float64 `json:"wow_delta_pp"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if resp.Rate < 0.39 || resp.Rate > 0.41 {
+		t.Errorf("current rate=%v want ≈0.40", resp.Rate)
+	}
+	if resp.PriorRate < 0.19 || resp.PriorRate > 0.21 {
+		t.Errorf("prior rate=%v want ≈0.20", resp.PriorRate)
+	}
+	if resp.WowDeltaPp < 19 || resp.WowDeltaPp > 21 {
+		t.Errorf("wow_delta_pp=%v want ≈+20", resp.WowDeltaPp)
+	}
+}
+
+func TestG9Rework_ProjectScope_FiltersByPrefix(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// CLITEST: 5 total, 2 rework → 40%.
+	// DEMO: 10 total, 0 rework → 0%.
+	// Org-scope: 15 total, 2 rework → 13.3%.
+	for i := 0; i < 5; i++ {
+		seedRunForRework(t, store, fmt.Sprintf("ct-%02d", i),
+			fmt.Sprintf("CLITEST-%d", i+1), i < 2, now.AddDate(0, 0, -1))
+	}
+	for i := 0; i < 10; i++ {
+		seedRunForRework(t, store, fmt.Sprintf("dm-%02d", i),
+			fmt.Sprintf("DEMO-%d", i+1), false, now.AddDate(0, 0, -1))
+	}
+
+	_, body := g9Get(t, mux, "/api/g9/rework?scope=project&id=CLITEST")
+	var resp struct {
+		Rate   float64 `json:"rate"`
+		Total  int     `json:"total"`
+		Rework int     `json:"rework"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, body)
+	}
+	if resp.Total != 5 || resp.Rework != 2 {
+		t.Errorf("CLITEST scope total=%d rework=%d want 5/2", resp.Total, resp.Rework)
+	}
+
+	// Org scope sees both projects.
+	_, body = g9Get(t, mux, "/api/g9/rework")
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal org: %v", err)
+	}
+	if resp.Total != 15 {
+		t.Errorf("org scope total=%d want 15", resp.Total)
+	}
+}
+
+func TestG9Rework_ExceedsThresholdFlag(t *testing.T) {
+	store := setupG9DB(t)
+	defer store.Close()
+	mux := newG9Mux(store)
+
+	now := time.Now()
+	// 5/10 = 50% — well above the v1 threshold of 10%.
+	for i := 0; i < 10; i++ {
+		seedRunForRework(t, store, fmt.Sprintf("hot-%02d", i),
+			fmt.Sprintf("CLITEST-%d", i+1), i < 5, now.AddDate(0, 0, -1))
+	}
+	_, body := g9Get(t, mux, "/api/g9/rework")
+	var resp struct {
+		Rate             float64 `json:"rate"`
+		ExceedsThreshold bool    `json:"exceeds_threshold"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.ExceedsThreshold {
+		t.Errorf("rate=%v should exceed threshold", resp.Rate)
+	}
+}
+
 func TestG9Alerts_DrilldownURL(t *testing.T) {
 	store := setupG9DB(t)
 	defer store.Close()
