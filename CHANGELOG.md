@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-01
+
+G10 dashboard expansion: closes 5 high-impact data gaps from the G9 GA audit (engineer KPI strip, org alerts banner, DORA history sparklines, mix leaderboard, rework rate) plus 1 P0 mislabel fix (Iteration Distribution rewire to actual round counts). No schema migration — all features additive on existing tables.
+
+### Added — G10 dashboard
+
+- **Engineer KPI strip** — 5 hero tiles on engineer view (cost / runs / interventions / autonomy / success, all 7-day window) with WoW delta arrow on cost. Backend: `/api/g9/engineer/{name}` returns `kpi_7d` block.
+- **Org alerts banner** — persistent red banner above DORA scorecard surfacing `analytics.DetectAlerts` cost-multiple + AC-dip breaches. Each row has a `view` drilldown link (`?role=agent&id=<name>` for cost multiples, `?role=engineer&id=<name>` for AC dips). Hidden when no alerts. Backend: `/api/g9/alerts`.
+- **DORA history sparklines** — 32px sparkline appended to each of the 4 DORA tiles (org + project), rendering last 12 `metric_snapshots` chronologically. Trend coloring respects metric direction (deploy_freq up = green, lead_time/CFR/MTTR down = green). Backend: `/api/g9/dora/history?scope=&id=&limit=`.
+- **Mix leaderboard (engineer × agent)** — sortable table on org view backed by `db.GetMixLeaderboard` (28-day window, top-20). Click engineer name to drill into engineer view. Backend: `/api/g9/mix-leaderboard`.
+- **Rework rate tile + WoW delta** — DORA-adjacent hero tile on org view showing `rework_runs / total_runs` over last 28 days, threshold flag at 0.10 (matches `metric.ReworkThresholdV1`), WoW arrow in percentage points (lower = better, green when down). Backend: `/api/g9/rework?scope=&id=&period=` honors Jira project-key prefix filter.
+
+### Changed
+
+- **Iteration Distribution chart** — was bucketing by *duration* (mislabel from G9). Now buckets by *round count* (1, 2, 3, 4, 5+) per task — definition matches `dandori analytics iterations`. Old `TestG9Iterations_ReturnsHistogramByDuration` removed (asserted the bug).
+- **Engineer KPI strip CSS** — added `#engineer-kpi-grid` 5-column grid override (was inheriting 4-column `.project-hero-grid` and wrapping the 5th tile).
+- **Mobile @ ≤768px** — `.dora-grid` now responsive (2 cols instead of fixed 4) with `min-width:0` on tiles so they shrink to fit. Mix leaderboard table gains `overflow-x:auto` wrapper. Closes a v0.7.0 regression where the DORA card overflowed inside its `overflow:hidden` parent at 375px viewport.
+
+### Tests
+
+- 23 new test cases across `internal/server/g9_*_test.go` (4 engineer KPI · 3 alerts · 6 DORA history · 4 mix leaderboard · 5 rework · 1 iteration rewire). All green.
+- Full suite: 24 packages, all green; ~858 test runs total.
+- Browser visual sweep (Playwright @1440 desktop + 375 mobile): 0 failures, 0 console errors across org/project/engineer scopes.
+
+### Live-test cross-checks
+
+| Phase | Endpoint | CLI source | Match |
+|---|---|---|---|
+| P1 | `/api/g9/engineer/Phúc Nguyễn` `kpi_7d` | `dandori analytics cost --by engineer` | $31.82 / 21 runs / 0 interv / 100% / 90% — exact |
+| P2 | `/api/g9/alerts` | `dandori analytics all` alerts section | orphan agent at 1070.1× baseline — exact |
+| P3 | `/api/g9/dora/history` | `metric_snapshots` payload (snap-20260501100043) | deploy_freq 1.6785714 / lead_time 0.00381 / CFR 0.19148 / mttr 2.17382 — byte-identical |
+| P4 | `/api/g9/mix-leaderboard` | `dandori analytics mix --since 28` | orphan/109/$10217.94, Phúc/e2e-test-alpha/19/$31.82 — exact |
+| P5 | `/api/g9/rework` | `dandori metric export` rework field | rate 0.007194, 1/139, threshold 0.1, exceeds=false — byte-identical |
+| P6 | `/api/g9/iterations` buckets | `dandori analytics iterations` task counts | 17 tasks, avg 1.08 — internally consistent |
+
+### Plan / devlog refs
+
+- Plan: `plans/260501-1243-g10-dashboard-expansion/plan.md`
+- Devlog: `docs/devlog/2026-05-01-v0.8.0-release.md`
+
 ## [0.7.0] — 2026-05-01
 
 G9 dashboard redesign GA: 3-level analytics surface (engineer · project · org) replacing the single-page legacy dashboard. CWD-aware landing, role switcher, period selector, vs-prior comparison, insight engine, drilldowns.
